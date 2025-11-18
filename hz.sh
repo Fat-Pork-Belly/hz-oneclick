@@ -26,7 +26,9 @@ main_menu() {
 
   case "$choice" in
     1) echo "〖预览〗Immich on Cloud 相关功能稍后补齐～";;
-    2) echo "〖预览〗rclone 基础安装脚本稍后补齐～";;
+    2) echo "开始执行 rclone 基础安装脚本..."
+       curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/rclone/install.sh | bash
+       ;;
     3) echo "〖预览〗Plex 安装脚本稍后补齐～";;
     4) echo "〖预览〗Transmission 安装脚本稍后补齐～";;
     5) echo "〖预览〗Tailscale 安装脚本稍后补齐～";;
