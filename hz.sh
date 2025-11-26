@@ -9,16 +9,16 @@ yellow() { printf '\033[33m%s\033[0m\n' "$@"; }
 main_menu() {
   clear
   cyan "hz-oneclick - HorizonTech Installer (Preview)"
-  cyan "hz-oneclick - HorizonTech 一键安装入口（预览版）"
+  green "hz-oneclick - HorizonTech 一键安装入口（预览版）"
   echo
 
   cyan "菜单选项 / Menu options"
   cyan "  1) Immich on Cloud (VPS / OCI) / Immich 上云"
-  cyan "  2) rclone basics / rclone 基础安装"
+  green "  2) rclone basics / rclone 基础安装"
   cyan "  3) Plex Media Server / Plex 媒体服务器"
-  cyan "  4) Transmission (BT download) / Transmission BT 下载"
+  green "  4) Transmission (BT download) / Transmission BT 下载"
   cyan "  5) Tailscale / Tailscale “接入”"
-  cyan "  6) Cloudflare Tunnel / Cloudflare Tunnel"
+  green "  6) Cloudflare Tunnel / Cloudflare Tunnel"
   cyan "  7) msmtp + Brevo (SMTP) / 邮件报警（msmtp + Brevo）"
   yellow "  0) Exit / 退出"
   echo
