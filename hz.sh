@@ -22,7 +22,6 @@ main_menu() {
   cyan "  7) msmtp + Brevo (SMTP) / 邮件报警（msmtp + Brevo）"
   green "  8) WP backup (DB + files) / WordPress 备份（数据库 + 文件）"
   yellow "  0) Exit / 退出"
-  yellow "  0) Exit / 退出"
   echo
 
   read -rp "Please enter a number and press Enter / 请输入编号并按回车: " choice
