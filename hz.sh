@@ -1,99 +1,178 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-# 颜色函数
-cyan()   { printf '\033[36m%s\033[0m\n' "$@"; }
-green()  { printf '\033[32m%s\033[0m\n' "$@"; }
-yellow() { printf '\033[33m%s\033[0m\n' "$@"; }
+# 颜色输出
+cyan()   { printf '\033[36m%s\033[0m\n' "$*"; }
+green()  { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 
-# 默认语言：英文
-HZ_LANG="en"
+# 全局语言变量：en / zh
+HZ_LANG=""
 
 choose_lang() {
-  clear
-  cyan "hz-oneclick - HorizonTech Installer"
+  while true; do
+    clear
+    cyan "hz-oneclick - HorizonTech Installer"
+    echo
+    echo "Please select language / 请选择语言："
+    echo "  1) English"
+    echo "  2) 简体中文"
+    echo
 
-  echo
-  echo "Please select language / 请选择语言："
-  echo "  1) English"
-  echo "  2) 简体中文"
-  echo
-  read -rp "Enter a number and press Enter: " lang_choice
+    read -rp "Enter a number and press Enter / 请输入编号并回车: " lang_choice
 
-  case "$lang_choice" in
-    2) HZ_LANG="zh" ;;   # 选 2 就切到中文
-    *) HZ_LANG="en" ;;   # 其它情况都用英文（包括直接回车）
-  esac
+    case "$lang_choice" in
+      1)
+        HZ_LANG="en"
+        break
+        ;;
+      2)
+        HZ_LANG="zh"
+        break
+        ;;
+      *)
+        echo "Invalid choice / 无效选项，请重新输入..."
+        read -rp "Press Enter to continue / 按回车继续..." _
+        ;;
+    esac
+  done
 }
 
 main_menu() {
-  clear
+  while true; do
+    clear
 
-  if [ "$HZ_LANG" = "en" ]; then
-    # ===== English menu =====
-    cyan  "hz-oneclick - HorizonTech Installer (Preview)"
-    green "hz-oneclick - HorizonTech one-click installer (preview)"
-    echo
-    cyan  "Menu options"
-    cyan  "  1) Immich on Cloud (VPS / OCI)"
-    green "  2) rclone basics (OneDrive etc.)"
-    cyan  "  3) Plex Media Server"
-    green "  4) Transmission (BT download)"
-    cyan  "  5) Tailscale access"
-    green "  6) Cloudflare Tunnel"
-    cyan  "  7) msmtp + Brevo (SMTP alert)"
-    green "  8) WP backup (DB + files)"
-    yellow "  0) Exit"
-    echo
-    read -rp "Please enter a number and press Enter: " choice
+    if [ "$HZ_LANG" = "en" ]; then
+      # ===== English menu =====
+      cyan  "hz-oneclick - HorizonTech Installer (preview)"
+      green "hz-oneclick - HorizonTech one-click installer (preview)"
+      echo
+      cyan  "Menu options"
+      cyan  "  1) Immich on Cloud (VPS / OCI)"
+      green "  2) rclone basics (OneDrive etc.)"
+      cyan  "  3) Plex Media Server"
+      green "  4) Transmission (BT download)"
+      cyan  "  5) Tailscale access"
+      green "  6) Cloudflare Tunnel"
+      cyan  "  7) msmtp + Brevo (SMTP alert)"
+      green "  8) WP backup (DB + files)"
+      yellow "  0) Exit"
+      echo
+      read -rp "Please enter a number and press Enter: " choice
 
-  else
-    # ===== 中文菜单 =====
-    cyan  "hz-oneclick - HorizonTech 一键安装入口（预览版）"
-    green "hz-oneclick - HorizonTech 一键安装入口（预览版）"
-    echo
-    cyan  "菜单选项"
-    cyan  "  1) Immich 上云（VPS / OCI）"
-    green "  2) rclone 基础安装（OneDrive 等）"
-    cyan  "  3) Plex 媒体服务器"
-    green "  4) Transmission BT 下载"
-    cyan  "  5) Tailscale “接入”"
-    green "  6) Cloudflare Tunnel"
-    cyan  "  7) 邮件报警（msmtp + Brevo）"
-    green "  8) WordPress 备份（数据库 + 文件）"
-    yellow "  0) 退出"
-    echo
-    read -rp "请输入编号并按回车: " choice
-  fi
+      case "$choice" in
+        1)
+          echo "Immich installer is not ready yet (coming soon)..."
+          read -rp "Press Enter to return to menu..." _
+          ;;
+        2)
+          echo "Running rclone basics installer..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/rclone/install.sh)
+          read -rp "Done. Press Enter to return to menu..." _
+          ;;
+        3)
+          echo "Plex installer is not ready yet (coming soon)..."
+          read -rp "Press Enter to return to menu..." _
+          ;;
+        4)
+          echo "Transmission installer is not ready yet (coming soon)..."
+          read -rp "Press Enter to return to menu..." _
+          ;;
+        5)
+          echo "Tailscale helper scripts are not ready yet (coming soon)..."
+          read -rp "Press Enter to return to menu..." _
+          ;;
+        6)
+          echo "Cloudflare Tunnel helper scripts are not ready yet (coming soon)..."
+          read -rp "Press Enter to return to menu..." _
+          ;;
+        7)
+          echo "Running msmtp + Brevo alert setup..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/mail/setup-msmtp-brevo.sh)
+          read -rp "Done. Press Enter to return to menu..." _
+          ;;
+        8)
+          echo "Running WordPress backup (DB + files) setup..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic.sh)
+          read -rp "Done. Press Enter to return to menu..." _
+          ;;
+        0)
+          echo "Bye~"
+          exit 0
+          ;;
+        *)
+          echo "Invalid choice, please try again."
+          read -rp "Press Enter to continue..." _
+          ;;
+      esac
 
-  case "$choice" in
-    1)
-      echo "准备安装 Immich on Cloud..."
-      # 原来的 1 号逻辑放这里
-      ;;
-    2)
-      echo "准备安装 rclone 基础模块..."
-      # ...
-      ;;
-    7)
-      echo "准备安装 msmtp + Brevo 邮件报警模块..."
-      bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/mail/setup-msmtp-brevo.sh)
-      ;;
-    8)
-      echo "准备安装 WordPress 备份模块..."
-      bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic.sh)
-      ;;
-    0)
-      echo "Bye~"
-      exit 0
-      ;;
-    *)
-      echo "Invalid choice / 无效输入."
-      read -rp "Press Enter to continue... / 按回车继续..." _
-      ;;
-  esac
+    else
+      # ===== 中文菜单 =====
+      cyan  "hz-oneclick - HorizonTech 一键安装入口（预览版）"
+      green "hz-oneclick - HorizonTech 一键安装入口（预览版）"
+      echo
+      cyan  "菜单选项 / Menu options"
+      cyan  "  1) Immich 上云（VPS / OCI）"
+      green "  2) rclone 基础安装（OneDrive 等）"
+      cyan  "  3) Plex 媒体服务器"
+      green "  4) Transmission BT 下载"
+      cyan  "  5) Tailscale “接入”"
+      green "  6) Cloudflare Tunnel 穿透"
+      cyan  "  7) 邮件报警（msmtp + Brevo）"
+      green "  8) WordPress 备份（数据库 + 文件）"
+      yellow "  0) 退出"
+      echo
+      read -rp "请输入编号并按回车: " choice
 
-  # 执行完一个选项后，回到主菜单
-  choose_lang
-  main_menu
+      case "$choice" in
+        1)
+          echo "Immich 安装脚本暂未开放（敬请期待）..."
+          read -rp "按回车返回菜单..." _
+          ;;
+        2)
+          echo "即将安装 rclone 基础模块..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/rclone/install.sh)
+          read -rp "完成。按回车返回菜单..." _
+          ;;
+        3)
+          echo "Plex 安装脚本暂未开放（敬请期待）..."
+          read -rp "按回车返回菜单..." _
+          ;;
+        4)
+          echo "Transmission 安装脚本暂未开放（敬请期待）..."
+          read -rp "按回车返回菜单..." _
+          ;;
+        5)
+          echo "Tailscale 辅助脚本暂未开放（敬请期待）..."
+          read -rp "按回车返回菜单..." _
+          ;;
+        6)
+          echo "Cloudflare Tunnel 辅助脚本暂未开放（敬请期待）..."
+          read -rp "按回车返回菜单..." _
+          ;;
+        7)
+          echo "即将安装 msmtp + Brevo 邮件报警模块..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/mail/setup-msmtp-brevo.sh)
+          read -rp "完成。按回车返回菜单..." _
+          ;;
+        8)
+          echo "即将安装 WordPress 备份模块（数据库 + 文件）..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic.sh)
+          read -rp "完成。按回车返回菜单..." _
+          ;;
+        0)
+          echo "再见～"
+          exit 0
+          ;;
+        *)
+          echo "无效选项，请重新输入。"
+          read -rp "按回车继续..." _
+          ;;
+      esac
+    fi
+  done
 }
+
+# 程序入口
+choose_lang
+main_menu
