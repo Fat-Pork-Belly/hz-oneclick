@@ -28,7 +28,7 @@ echo "============================================================"
 echo
 
 # ---------- 站点代号 / Site identifier ----------
-read -rp "Site ID (e.g. google) / 站点代号: " SITE
+read -rp "Site ID (e.g. google.com) / 站点代号: " SITE
 SITE="${SITE:-wp}"
 
 # ---------- WP 路径 / WordPress path ----------
