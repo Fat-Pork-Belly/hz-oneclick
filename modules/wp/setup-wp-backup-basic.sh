@@ -183,7 +183,7 @@ echo "[6/6] 每日备份时间 / Daily backup time"
 echo "请输入每天的备份时间（24 小时制，格式 HH:MM）。例如："
 echo "  03:30  表示每天凌晨 3:30"
 echo "  23:45  表示每天 23:45"
-read -rp "每日备份时间 [03:30] : " BACKUP_TIME
+read -rp "每日备份时间 通常为 UTC [03:30] : " BACKUP_TIME
 BACKUP_TIME="${BACKUP_TIME:-03:30}"
 
 if ! [[ "$BACKUP_TIME" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
