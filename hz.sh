@@ -99,7 +99,7 @@ main_menu() {
           ;;
         8)
           echo "Running WordPress backup (DB + files) setup..."
-          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic.sh)
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic-en.sh)
           read -rp "Done. Press Enter to return to menu..." _
           ;;
         0)
