@@ -103,6 +103,10 @@ main_menu() {
           bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic-en.sh)
           read -rp "Done. Press Enter to return to menu..." _
           ;;
+        9)
+          echo "Running wp-cron helper (system cron for WordPress)..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/gen-wp-cron-en.sh)
+          ;;
         0)
           echo "Bye~"
           exit 0
