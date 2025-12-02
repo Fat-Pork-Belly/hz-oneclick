@@ -61,8 +61,9 @@ main_menu() {
       green "  6) Cloudflare Tunnel"
       cyan  "  7) msmtp + Brevo (SMTP alert)"
       green "  8) WP backup (DB + files)"
+      cyan  "  9) wp-cron helper (system cron for WordPress)"
       yellow "  0) Exit"
-      yellow "  r) Return to language selection / 返回语言选择 "
+      green "  r) Return to language selection / 返回语言选择 "
       echo
       read -rp "Please enter a choice and press Enter: " choice
 
@@ -130,6 +131,7 @@ main_menu() {
       green "  6) Cloudflare Tunnel 穿透"
       cyan  "  7) 邮件报警（msmtp + Brevo）"
       green "  8) WordPress 备份（数据库 + 文件）"
+      cyan  "  9) wp-cron 定时任务向导"
       yellow "  0) 退出"
       yellow "  r) 返回语言选择 / Return to language selection"
       echo
@@ -170,6 +172,10 @@ main_menu() {
           echo "即将安装 WordPress 备份模块（数据库 + 文件）..."
           bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/setup-wp-backup-basic.sh)
           read -rp "完成。按回车返回菜单..." _
+          ;;
+        9)
+          echo "将运行 wp-cron 定时任务向导..."
+          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/wp/gen-wp-cron.sh)
           ;;
         0)
           echo "再见～"
