@@ -1,519 +1,380 @@
 #!/usr/bin/env bash
-#
 # install-ols-wp-standard.sh
-# 版本：v0.1
-# 功能：
-#   Step 1/7 环境检查
-#   Step 2/7 检查 / 安装 OpenLiteSpeed
-#   Step 3/7 收集站点基本信息（slug / 域名 / 路径）
-#   Step 4/7 收集数据库 / Redis 配置（含 Docker 检测）
-#   Step 5/7 创建目录与权限
-#   Step 6/7 安装 WordPress 并生成 wp-config.php
-#   Step 7/7 创建 OLS vhost 并给出总结信息
-#
+# v0.2 - OLS + WordPress 标准安装（基础版：HTTP 80，无自动建库）
 
-set -euo pipefail
+set -u
 
-SCRIPT_VERSION="v0.1"
-
-# ========= 通用输出函数 =========
-cecho() {
-  # $1: 颜色码，$2: 文本
-  local color="$1"
-  shift
-  printf "\033[%sm%s\033[0m\n" "$color" "$*"
-}
-
-info()  { cecho "32" "[INFO] $*"; }
-warn()  { cecho "33" "[WARN] $*"; }
-error() { cecho "31" "[ERROR] $*"; }
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RED="\033[31m"
+BLUE="\033[34m"
+NC="\033[0m"
 
 pause() {
-  read -r -p "按回车键继续..." _
-}
-
-print_step() {
-  local n="$1"
-  local title="$2"
-  cecho "36" ""
-  cecho "36" "==================== Step ${n}/7 ===================="
-  cecho "36" "${title}"
-  cecho "36" "===================================================="
-}
-
-# ========= 交互输入小工具 =========
-ask_with_default() {
-  local prompt="$1"
-  local default="${2:-}"
-  local var
-  if [[ -n "$default" ]]; then
-    read -r -p "${prompt} [默认: ${default}] " var || true
-    if [[ -z "$var" ]]; then
-      var="$default"
-    fi
-  else
-    read -r -p "${prompt} " var || true
-  fi
-  echo "$var"
-}
-
-ask_secret() {
-  local prompt="$1"
-  local var
-  read -r -s -p "${prompt} (输入内容不会回显): " var || true
   echo
-  echo "$var"
+  read -rp "按回车键继续..." _
 }
 
-confirm_yn() {
-  local prompt="$1"
-  local default="${2:-y}"
-  local var
-  read -r -p "${prompt} [y/n，默认: ${default}] " var || true
-  if [[ -z "$var" ]]; then
-    var="$default"
-  fi
-  if [[ "$var" == "y" || "$var" == "Y" ]]; then
-    return 0
-  fi
-  return 1
+header_step() {
+  local step="$1"
+  local total="$2"
+  local title="$3"
+  echo
+  echo "==================== Step ${step}/${total} ===================="
+  echo "${title}"
+  echo "===================================================="
 }
 
-# ========= Step 1/7 环境检查 =========
-step1_env_check() {
-  print_step 1 "环境检查（root / 系统版本 / 架构）"
-
-  if [[ "$(id -u)" -ne 0 ]]; then
-    error "请使用 root 身份运行本脚本（sudo -i 后再执行）。"
+require_root() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}[ERROR] 请用 root 执行本脚本。${NC}"
     exit 1
   fi
+}
 
-  local os=""
-  local version_id=""
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    os="$ID"
-    version_id="$VERSION_ID"
-  fi
+detect_env() {
+  OS_NAME=$(lsb_release -si 2>/dev/null || echo "unknown")
+  OS_VER=$(lsb_release -sr 2>/dev/null || echo "unknown")
+  ARCH=$(uname -m)
+  echo -e "${INFO}[INFO] 检测到系统：${OS_NAME} ${OS_VER}${NC}"
+  echo -e "${INFO}[INFO] CPU 架构：${ARCH}${NC}"
+}
 
-  info "检测到系统：${os} ${version_id}"
-  info "CPU 架构：$(uname -m)"
+install_ols() {
+  header_step 2 7 "检查 / 安装 OpenLiteSpeed"
 
-  if [[ "$os" != "ubuntu" ]]; then
-    warn "本脚本目前只针对 Ubuntu 22.04 / 24.04 做了测试，其他系统请谨慎使用。"
-    if ! confirm_yn "仍然继续执行吗？" "n"; then
-      info "用户取消。"
-      exit 0
+  if command -v lswsctrl >/dev/null 2>&1 || [ -d /usr/local/lsws ]; then
+    echo -e "${YELLOW}[WARN] 检测到系统中已经存在 OLS 相关文件，将尝试直接启用。${NC}"
+  else
+    echo -e "${YELLOW}[WARN] 未检测到 OpenLiteSpeed，将尝试安装官方 OLS。${NC}"
+    read -rp "现在自动安装 OLS（会执行 apt 操作）？ [y/N，默认: y] " INSTALL_OLS
+    INSTALL_OLS=${INSTALL_OLS:-y}
+    if [[ "$INSTALL_OLS" =~ ^[Yy]$ ]]; then
+      echo -e "${GREEN}[INFO] 开始安装 OLS（使用官方仓库）...${NC}"
+      apt update -y
+      # 保证必要工具存在
+      apt install -y wget gnupg lsb-release
+      # 官方脚本添加仓库
+      wget -O - https://repo.litespeed.sh | bash
+      apt update -y
+      apt install -y openlitespeed
+    else
+      echo -e "${RED}[ERROR] 用户选择不安装 OLS，无法继续。${NC}"
+      exit 1
     fi
   fi
 
-  if [[ "$version_id" != "22.04" && "$version_id" != "24.04" ]]; then
-    warn "建议使用 Ubuntu 22.04 或 24.04，当前为 ${version_id}。"
-    if ! confirm_yn "仍然继续执行吗？" "n"; then
-      info "用户取消。"
-      exit 0
-    fi
-  fi
-
-  info "环境检查完成。"
-  pause
-}
-
-# ========= Step 2/7 检查 / 安装 OLS =========
-ensure_ols_installed() {
-  if command -v lswsctrl >/dev/null 2>&1 || systemctl list-unit-files | grep -q 'lsws\.service'; then
-    info "检测到已安装 OpenLiteSpeed。"
-    return 0
-  fi
-
-  warn "未检测到 OpenLiteSpeed，将尝试安装官方 OLS。"
-  if ! confirm_yn "现在自动安装 OLS（会执行 apt 操作）？" "y"; then
-    error "未安装 OLS，无法继续。"
-    exit 1
-  fi
-
-  info "开始安装 OLS（使用官方仓库）..."
-  apt update -y
-  apt install -y wget gnupg lsb-release
-
-  wget -O - https://repo.litespeed.sh | bash
-  apt update -y
-  apt install -y openlitespeed
-
-  info "OLS 安装完成。"
-}
-
-step2_ols() {
-  print_step 2 "检查 / 安装 OpenLiteSpeed"
-
-  ensure_ols_installed
-
-  info "尝试启动并设置 OLS 开机自启..."
-  if systemctl list-unit-files | grep -q 'lsws\.service'; then
-    systemctl enable lsws || true
-    systemctl restart lsws || true
+  # 使用 systemd 管理 OLS
+  if systemctl list-unit-files | grep -q "^lsws\.service"; then
+    systemctl enable lsws >/dev/null 2>&1 || true
+    systemctl restart lsws
   else
-    # 旧版可能使用 lswsctrl
-    lswsctrl restart || true
-  fi
-
-  info "OLS 检查/安装步骤完成。"
-  pause
-}
-
-# ========= Step 3/7 收集站点基本信息 =========
-step3_collect_site_info() {
-  print_step 3 "收集站点基本信息（slug / 域名 / 路径）"
-
-  SITE_SLUG=$(ask_with_default "请输入站点代号（slug），用于路径和配置命名" "mysite")
-  SITE_SLUG="${SITE_SLUG// /-}"  # 简单把空格换成 -
-
-  info "站点类型："
-  echo "  1) 主站（使用 main-db / main-redis 模式）"
-  echo "  2) 租户 / demo 站（使用 tenant-db / tenant-redis 模式）"
-  local type_choice
-  type_choice=$(ask_with_default "请选择站点类型 [1/2]" "1")
-  case "$type_choice" in
-    1) SITE_TYPE="main" ;;
-    2) SITE_TYPE="tenant" ;;
-    *) SITE_TYPE="main" ;;
-  esac
-
-  SITE_DOMAIN=$(ask_with_default "请输入主域名（示例：example.com）" "example.com")
-
-  SITE_DOCROOT_DEFAULT="/var/www/${SITE_SLUG}/html"
-  SITE_DOCROOT=$(ask_with_default "请输入 WordPress 安装根目录" "$SITE_DOCROOT_DEFAULT")
-
-  SITE_LOGDIR_DEFAULT="/var/www/${SITE_SLUG}/logs"
-  USE_LOGDIR="y"
-  if confirm_yn "是否为该站点单独创建日志目录？" "y"; then
-    USE_LOGDIR="y"
-    SITE_LOGDIR="$SITE_LOGDIR_DEFAULT"
-  else
-    USE_LOGDIR="n"
-    SITE_LOGDIR=""
-  fi
-
-  info "站点信息汇总："
-  echo "  slug     : ${SITE_SLUG}"
-  echo "  类型     : ${SITE_TYPE}"
-  echo "  域名     : ${SITE_DOMAIN}"
-  echo "  docroot  : ${SITE_DOCROOT}"
-  echo "  logs dir : ${SITE_LOGDIR:-（不单独创建）}"
-
-  if ! confirm_yn "上述信息是否正确？" "y"; then
-    warn "用户选择重新输入站点信息。"
-    step3_collect_site_info
-    return
-  fi
-
-  pause
-}
-
-# ========= Step 4/7 收集 DB / Redis 信息（含 Docker 检测） =========
-check_docker_status() {
-  if command -v docker >/dev/null 2>&1; then
-    info "检测到 docker 命令。"
-    return 0
-  fi
-  return 1
-}
-
-install_docker_basic() {
-  warn "未检测到 Docker，将尝试安装 Docker（官方推荐方式之一）。"
-  if ! confirm_yn "现在自动安装 Docker（含 compose 插件）？" "y"; then
-    warn "用户选择不安装 Docker。"
-    return 1
-  fi
-
-  info "开始安装 Docker..."
-  apt update -y
-  apt install -y ca-certificates curl gnupg
-
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-
-  local codename
-  codename=$(lsb_release -cs)
-  echo \
-"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-${codename} stable" > /etc/apt/sources.list.d/docker.list
-
-  apt update -y
-  apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-  systemctl enable docker || true
-  systemctl start docker || true
-
-  info "Docker 安装完成。"
-  return 0
-}
-
-step4_collect_db_redis() {
-  print_step 4 "收集数据库 / Redis 配置（含 Docker 检测）"
-
-  info "数据库实例类型："
-  echo "  1) 本机 Docker（推荐）：MariaDB 运行在本机 Docker"
-  echo "  2) 自定义：手动输入 DB host / port（本机已有实例或内网实例）"
-  local db_mode_choice
-  db_mode_choice=$(ask_with_default "请选择 DB 模式 [1/2]" "1")
-
-  DB_MODE="docker"
-  if [[ "$db_mode_choice" == "2" ]]; then
-    DB_MODE="custom"
-  fi
-
-  if [[ "$DB_MODE" == "docker" ]]; then
-    if ! check_docker_status; then
-      warn "当前未检测到 Docker 环境。"
-      if install_docker_basic; then
-        info "Docker 环境已准备好。"
-      else
-        warn "仍未安装 Docker，将切换为“自定义 DB 模式”。"
-        DB_MODE="custom"
+    # 兼容某些发行版 service 名不一样
+    if systemctl list-unit-files | grep -q "^lshttpd\.service"; then
+      systemctl enable lshttpd >/dev/null 2>&1 || true
+      systemctl restart lshttpd
+    else
+      # 最后一招：直接用 lswsctrl
+      if [ -x /usr/local/lsws/bin/lswsctrl ]; then
+        /usr/local/lsws/bin/lswsctrl restart
       fi
-    else
-      info "Docker 已经可用。"
     fi
   fi
 
-  if [[ "$DB_MODE" == "docker" ]]; then
-    info "当前版本不会自动创建 MariaDB 容器，先默认认为 DB_HOST=127.0.0.1 / PORT=3306。"
-    DB_HOST_DEFAULT="127.0.0.1"
-    DB_PORT_DEFAULT="3306"
+  sleep 2
+
+  if pgrep -f lshttpd >/dev/null 2>&1; then
+    echo -e "${GREEN}[INFO] OLS 进程正在运行。${NC}"
   else
-    DB_HOST_DEFAULT="127.0.0.1"
-    DB_PORT_DEFAULT="3306"
+    echo -e "${RED}[ERROR] 无法确认 OLS 进程是否正常运行，请手动检查（systemctl status lsws）。${NC}"
   fi
 
-  DB_HOST=$(ask_with_default "请输入 DB 主机（DB_HOST）" "$DB_HOST_DEFAULT")
-  DB_PORT=$(ask_with_default "请输入 DB 端口（DB_PORT）" "$DB_PORT_DEFAULT")
-  DB_NAME=$(ask_with_default "请输入 DB 名称（DB_NAME）" "${SITE_SLUG}_wp")
-  DB_USER=$(ask_with_default "请输入 DB 用户名（DB_USER）" "${SITE_SLUG}_user")
-  DB_PASSWORD=$(ask_secret "请输入 DB 密码（DB_PASSWORD），留空则稍后手动修改 wp-config.php")
+  echo -e "${GREEN}[INFO] OLS 检查/安装步骤完成。${NC}"
+  pause
+}
 
-  USE_REDIS="y"
-  if confirm_yn "是否启用 Redis？" "y"; then
-    USE_REDIS="y"
-    REDIS_HOST=$(ask_with_default "请输入 Redis 主机" "127.0.0.1")
-    REDIS_PORT=$(ask_with_default "请输入 Redis 端口" "6379")
-    local default_redis_db
-    if [[ "$SITE_TYPE" == "tenant" ]]; then
-      default_redis_db="2"
-    else
-      default_redis_db="1"
+collect_site_info() {
+  header_step 3 7 "收集站点信息（域名 / slug / 路径）"
+
+  # 域名
+  while true; do
+    read -rp "请输入站点主域名（例如: ols.horizontech.page）: " WP_DOMAIN
+    if [ -n "$WP_DOMAIN" ]; then
+      break
     fi
-    REDIS_DB_INDEX=$(ask_with_default "请输入 Redis DB index" "$default_redis_db")
+    echo -e "${YELLOW}[WARN] 域名不能为空，请重新输入。${NC}"
+  done
+
+  # slug
+  read -rp "请输入站点代号 slug（例如: ols，默认: 根据域名自动生成）: " WP_SLUG
+  if [ -z "$WP_SLUG" ]; then
+    WP_SLUG=$(echo "$WP_DOMAIN" | cut -d'.' -f1)
+    [ -z "$WP_SLUG" ] && WP_SLUG="site"
+  fi
+
+  # docroot
+  local default_docroot="/var/www/${WP_SLUG}/html"
+  read -rp "WordPress 安装目录（默认: ${default_docroot}）: " WP_DOCROOT
+  WP_DOCROOT=${WP_DOCROOT:-$default_docroot}
+
+  echo
+  echo -e "${GREEN}[INFO] 将使用以下站点配置：${NC}"
+  echo "  域名:   ${WP_DOMAIN}"
+  echo "  slug:   ${WP_SLUG}"
+  echo "  路径:   ${WP_DOCROOT}"
+  pause
+}
+
+collect_db_info() {
+  header_step 4 7 "收集数据库信息（请确保数据库已在目标实例中创建好）"
+
+  echo -e "${YELLOW}[提示] 本脚本当前版本不会自动创建数据库，只会将你输入的信息写入 wp-config.php。${NC}"
+  echo -e "${YELLOW}[提示] 请提前在目标 DB 实例中创建对应的 DB / 用户 / 授权。${NC}"
+  echo
+
+  # DB host
+  read -rp "DB 主机（默认: 127.0.0.1，不要带端口）: " DB_HOST
+  DB_HOST=${DB_HOST:-127.0.0.1}
+
+  # DB port
+  read -rp "DB 端口（默认: 3306）: " DB_PORT
+  DB_PORT=${DB_PORT:-3306}
+
+  # DB 名
+  while true; do
+    read -rp "DB 名称（例如: ${WP_SLUG}_wp）: " DB_NAME
+    [ -n "$DB_NAME" ] && break
+    echo -e "${YELLOW}[WARN] DB 名称不能为空。${NC}"
+  done
+
+  # DB 用户
+  while true; do
+    read -rp "DB 用户名（例如: ${WP_SLUG}_user）: " DB_USER
+    [ -n "$DB_USER" ] && break
+    echo -e "${YELLOW}[WARN] DB 用户名不能为空。${NC}"
+  done
+
+  # DB 密码
+  while true; do
+    read -rsp "DB 密码（输入时不显示）: " DB_PASSWORD
+    echo
+    [ -n "$DB_PASSWORD" ] && break
+    echo -e "${YELLOW}[WARN] DB 密码不能为空。${NC}"
+  done
+
+  # 表前缀
+  read -rp "表前缀（默认: wp_）: " TABLE_PREFIX
+  TABLE_PREFIX=${TABLE_PREFIX:-wp_}
+
+  echo
+  echo -e "${GREEN}[INFO] DB 配置信息如下（仅用于生成 wp-config.php）：${NC}"
+  echo "  DB_HOST: ${DB_HOST}"
+  echo "  DB_PORT: ${DB_PORT}"
+  echo "  DB_NAME: ${DB_NAME}"
+  echo "  DB_USER: ${DB_USER}"
+  echo "  表前缀: ${TABLE_PREFIX}"
+  echo -e "${YELLOW}[提示] 请确认目标 DB 实例已创建对应数据库和用户，并已授予权限。${NC}"
+  pause
+}
+
+prepare_docroot() {
+  header_step 5 7 "准备站点目录与权限"
+
+  echo -e "${GREEN}[INFO] 创建站点目录: ${WP_DOCROOT}${NC}"
+  mkdir -p "${WP_DOCROOT}"
+  # 创建上层目录（用于未来日志等）
+  mkdir -p "/var/www/${WP_SLUG}"
+
+  # 默认用 nobody:nogroup，与你现在 OLS 习惯一致，如有需要可后续调整
+  chown -R nobody:nogroup "/var/www/${WP_SLUG}"
+  find "/var/www/${WP_SLUG}" -type d -exec chmod 755 {} \;
+  find "/var/www/${WP_SLUG}" -type f -exec chmod 644 {} \;
+
+  echo -e "${GREEN}[INFO] 站点目录准备完成。${NC}"
+  pause
+}
+
+install_wordpress() {
+  header_step 6 7 "下载并安装 WordPress"
+
+  if [ -f "${WP_DOCROOT}/wp-config.php" ]; then
+    echo -e "${YELLOW}[WARN] 检测到 ${WP_DOCROOT}/wp-config.php 已存在，将只更新 wp-config 数据库配置。${NC}"
+    return
+  fi
+
+  tmpdir=$(mktemp -d)
+  cd "$tmpdir" || exit 1
+
+  echo -e "${GREEN}[INFO] 正在下载最新 WordPress...${NC}"
+  curl -fsSL -o wordpress.tar.gz https://wordpress.org/latest.tar.gz
+  tar xf wordpress.tar.gz
+
+  echo -e "${GREEN}[INFO] 拷贝 WordPress 文件到 ${WP_DOCROOT}...${NC}"
+  cp -R wordpress/* "${WP_DOCROOT}/"
+
+  cd /
+  rm -rf "$tmpdir"
+
+  chown -R nobody:nogroup "/var/www/${WP_SLUG}"
+  find "/var/www/${WP_SLUG}" -type d -exec chmod 755 {} \;
+  find "/var/www/${WP_SLUG}" -type f -exec chmod 644 {} \;
+
+  echo -e "${GREEN}[INFO] WordPress 核心文件安装完成。${NC}"
+  pause
+}
+
+generate_wp_config() {
+  header_step 7 7 "生成 wp-config.php 与 OLS 虚拟主机配置"
+
+  # 生成 wp-config.php（如不存在）
+  if [ ! -f "${WP_DOCROOT}/wp-config.php" ]; then
+    echo -e "${GREEN}[INFO] 生成新的 wp-config.php...${NC}"
+
+    # 获取盐值
+    WP_SALTS=$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ || echo "")
+
+    cat > "${WP_DOCROOT}/wp-config.php" <<EOF
+<?php
+define( 'DB_NAME', '${DB_NAME}' );
+define( 'DB_USER', '${DB_USER}' );
+define( 'DB_PASSWORD', '${DB_PASSWORD}' );
+define( 'DB_HOST', '${DB_HOST}:${DB_PORT}' );
+define( 'DB_CHARSET', 'utf8mb4' );
+define( 'DB_COLLATE', '' );
+
+\$table_prefix = '${TABLE_PREFIX}';
+
+EOF
+
+    if [ -n "$WP_SALTS" ]; then
+      echo "$WP_SALTS" >> "${WP_DOCROOT}/wp-config.php"
+    else
+      echo "// TODO: 请到 https://api.wordpress.org/secret-key/1.1/salt/ 生成 SALT 并替换。" >> "${WP_DOCROOT}/wp-config.php"
+    fi
+
+    cat >> "${WP_DOCROOT}/wp-config.php" <<'EOF'
+
+define( 'WP_DEBUG', false );
+define( 'FS_METHOD', 'direct' );
+
+if ( ! defined( 'ABSPATH' ) ) {
+        define( 'ABSPATH', __DIR__ . '/' );
+}
+require_once ABSPATH . 'wp-settings.php';
+EOF
+
+    chown nobody:nogroup "${WP_DOCROOT}/wp-config.php"
+    chmod 640 "${WP_DOCROOT}/wp-config.php"
   else
-    USE_REDIS="n"
-    REDIS_HOST=""
-    REDIS_PORT=""
-    REDIS_DB_INDEX=""
+    echo -e "${YELLOW}[WARN] ${WP_DOCROOT}/wp-config.php 已存在，请手工确认其中的 DB 配置信息。${NC}"
   fi
 
-  info "DB / Redis 信息汇总："
-  echo "  DB_HOST   : ${DB_HOST}"
-  echo "  DB_PORT   : ${DB_PORT}"
-  echo "  DB_NAME   : ${DB_NAME}"
-  echo "  DB_USER   : ${DB_USER}"
-  echo "  DB_PASS   : ${DB_PASSWORD:+(已输入)}"
-  echo "  Redis 启用: ${USE_REDIS}"
-  if [[ "$USE_REDIS" == "y" ]]; then
-    echo "  REDIS_HOST: ${REDIS_HOST}"
-    echo "  REDIS_PORT: ${REDIS_PORT}"
-    echo "  REDIS_DB  : ${REDIS_DB_INDEX}"
-  fi
+  # 创建 OLS vhost 配置
+  echo
+  echo -e "${GREEN}[INFO] 开始为该站点创建 OLS 虚拟主机配置...${NC}"
 
-  if ! confirm_yn "上述信息是否正确？" "y"; then
-    warn "用户选择重新输入 DB/Redis 信息。"
-    step4_collect_db_redis
-    return
-  fi
+  local lsws_conf_root="/usr/local/lsws/conf"
+  local vhost_dir="${lsws_conf_root}/vhosts/${WP_SLUG}"
+  local vhconf="${vhost_dir}/vhconf.conf"
+  local httpd_conf="${lsws_conf_root}/httpd_config.conf"
 
-  pause
+  mkdir -p "$vhost_dir"
+
+  cat > "$vhconf" <<EOF
+docRoot                   ${WP_DOCROOT}
+vhDomain                  ${WP_DOMAIN}
+enableGzip                1
+index  {
+  useServer               0
+  indexFiles              index.php,index.html
 }
-
-# ========= Step 5/7 创建目录与权限 =========
-step5_prepare_dirs() {
-  print_step 5 "创建 WordPress 目录与权限"
-
-  info "创建站点目录：${SITE_DOCROOT}"
-  mkdir -p "${SITE_DOCROOT}"
-
-  if [[ "$USE_LOGDIR" == "y" && -n "${SITE_LOGDIR}" ]]; then
-    info "创建日志目录：${SITE_LOGDIR}"
-    mkdir -p "${SITE_LOGDIR}"
-  fi
-
-  info "设置目录权限（nobody:nogroup + 755/644）..."
-  mkdir -p "/var/www/${SITE_SLUG}"
-  chown -R nobody:nogroup "/var/www/${SITE_SLUG}"
-  find "/var/www/${SITE_SLUG}" -type d -exec chmod 755 {} \;
-  find "/var/www/${SITE_SLUG}" -type f -exec chmod 644 {} \;
-
-  info "目录与权限准备完成。"
-  pause
+context / {
+  location                ${WP_DOCROOT}
+  allowBrowse             1
 }
-
-# ========= Step 6/7 安装 WordPress 并生成 wp-config =========
-step6_install_wp() {
-  print_step 6 "安装 WordPress 并生成 wp-config.php"
-
-  if [[ -f "${SITE_DOCROOT}/wp-config.php" ]]; then
-    warn "检测到 ${SITE_DOCROOT}/wp-config.php 已存在，将跳过 WordPress 下载和配置生成。"
-    pause
-    return
-  fi
-
-  info "下载最新 WordPress 核心..."
-  apt update -y
-  apt install -y wget tar
-
-  cd "${SITE_DOCROOT}"
-  if [[ ! -f latest.tar.gz ]]; then
-    wget https://wordpress.org/latest.tar.gz -O latest.tar.gz
-  fi
-
-  tar -xzf latest.tar.gz --strip-components=1
-  rm -f latest.tar.gz
-
-  info "生成 wp-config.php ..."
-  cp wp-config-sample.php wp-config.php
-
-  sed -i "s/database_name_here/${DB_NAME}/" wp-config.php
-  sed -i "s/username_here/${DB_USER}/" wp-config.php
-  sed -i "s/password_here/${DB_PASSWORD}/" wp-config.php
-  sed -i "s/localhost/${DB_HOST}/" wp-config.php
-
-  if [[ "$DB_PORT" != "3306" ]]; then
-    sed -i "s/'${DB_HOST}'/'${DB_HOST}:${DB_PORT}'/" wp-config.php
-  fi
-
-  if [[ "$USE_REDIS" == "y" ]]; then
-    cat <<EOF >> wp-config.php
-
-/** Redis 连接设置（由缓存插件使用） */
-if ( ! defined( 'WP_REDIS_HOST' ) ) {
-    define( 'WP_REDIS_HOST', '${REDIS_HOST}' );
-}
-if ( ! defined( 'WP_REDIS_PORT' ) ) {
-    define( 'WP_REDIS_PORT', ${REDIS_PORT} );
-}
-if ( ! defined( 'WP_REDIS_DATABASE' ) ) {
-    define( 'WP_REDIS_DATABASE', ${REDIS_DB_INDEX} );
-}
-EOF
-  fi
-
-  cat <<'EOF' >> wp-config.php
-
-/** 使用系统定时任务（systemd/cron）代替内置 wp-cron */
-if ( ! defined( 'DISABLE_WP_CRON' ) ) {
-    define( 'DISABLE_WP_CRON', true );
+phpIniOverride  {
 }
 EOF
 
-  info "WordPress 核心与 wp-config.php 已就绪。"
-  pause
-}
+  # 在 httpd_config.conf 中追加 virtualhost 与 listener 配置（如果不存在）
+  if ! grep -q "virtualhost ${WP_SLUG}" "$httpd_conf"; then
+    cat >> "$httpd_conf" <<EOF
 
-# ========= Step 7/7 创建 OLS vhost 并总结 =========
-step7_config_ols_vhost() {
-  print_step 7 "创建 OLS vhost 并总结信息"
-
-  local lsws_conf_dir="/usr/local/lsws/conf"
-  local vhost_conf_dir="${lsws_conf_dir}/vhosts"
-  local vhost_conf_path="${vhost_conf_dir}/${SITE_SLUG}.conf"
-
-  mkdir -p "${vhost_conf_dir}"
-
-  info "生成 vhost 配置：${vhost_conf_path}"
-
-  cat > "${vhost_conf_path}" <<EOF
-virtualHost ${SITE_SLUG} {
-  vhRoot                  ${SITE_DOCROOT}
+virtualhost ${WP_SLUG} {
+  vhRoot                  /var/www/${WP_SLUG}
+  configFile              conf/vhosts/${WP_SLUG}/vhconf.conf
   allowSymbolLink         1
   enableScript            1
   restrained              1
-  setUIDMode              0
-
-  errorlog ${SITE_LOGDIR:-/usr/local/lsws/logs}/${SITE_SLUG}_error.log {
-    useServer              0
-    logLevel               ERROR
-    rollingSize            10M
-  }
-
-  accesslog ${SITE_LOGDIR:-/usr/local/lsws/logs}/${SITE_SLUG}_access.log {
-    useServer              0
-    logFormat              "%h %l %u %t \\"%r\\" %>s %b"
-    rollingSize            10M
-  }
-
-  indexFiles              index.php,index.html
-
-  phpIniOverride  {
-  }
 }
 EOF
+  fi
 
-  warn "当前版本不会自动修改 OLS 主配置，请在 OLS 后台手动完成以下操作："
-  echo "  1) 登录 OLS WebAdmin（通常为 7080 端口），添加虚拟主机 ${SITE_SLUG}"
-  echo "  2) 绑定域名：${SITE_DOMAIN}"
-  echo "  3) 将该 vhost 关联到 80/443 对应的 listener"
+  # 创建/更新 HTTP listener 映射 80 端口
+  if ! grep -q "listener HTTP" "$httpd_conf"; then
+    cat >> "$httpd_conf" <<EOF
 
-  local notes_dir="/root/SETUP_NOTES"
-  mkdir -p "${notes_dir}"
-  local notes_file="${notes_dir}/wp-${SITE_SLUG}.txt"
-
-  cat > "${notes_file}" <<EOF
-[WordPress 标准站点安装记录] (${SCRIPT_VERSION})
-
-站点 slug      : ${SITE_SLUG}
-站点类型        : ${SITE_TYPE}
-主域名          : ${SITE_DOMAIN}
-docroot         : ${SITE_DOCROOT}
-日志目录        : ${SITE_LOGDIR:-未单独创建}
-
-DB_HOST         : ${DB_HOST}
-DB_PORT         : ${DB_PORT}
-DB_NAME         : ${DB_NAME}
-DB_USER         : ${DB_USER}
-DB_PASSWORD     : (已设置，未在此文件明文保存)
-
-Redis 启用      : ${USE_REDIS}
-Redis Host      : ${REDIS_HOST:-}
-Redis Port      : ${REDIS_PORT:-}
-Redis DB index  : ${REDIS_DB_INDEX:-}
-
-vhost 名称      : ${SITE_SLUG}
-vhost 配置文件  : ${vhost_conf_path}
-
-安装时间        : $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-脚本版本        : ${SCRIPT_VERSION}
+listener HTTP {
+  address                 *:80
+  secure                  0
+  map                     ${WP_SLUG} ${WP_DOMAIN}
+}
 EOF
+  else
+    # 如果 listener HTTP 已存在，只追加 map 行（避免重复）
+    if ! grep -q "map *${WP_SLUG}" "$httpd_conf"; then
+      # 简单做法：在 listener HTTP 段最后一行前插入 map
+      # 为避免复杂的 sed，这里直接追加一行提示，让用户手动检查
+      echo -e "${YELLOW}[WARN] 已存在 listener HTTP，请手动确认其中已包含 map ${WP_SLUG} ${WP_DOMAIN}。${NC}"
+    fi
+  fi
 
-  info "安装完成！关键信息已记录到：${notes_file}"
-  cecho "32" "请在浏览器中打开：https://${SITE_DOMAIN}（或配合 Cloudflare 解析）测试访问。"
-  pause
+  # 重启 OLS
+  echo -e "${GREEN}[INFO] 重启 OLS 以应用新配置...${NC}"
+  if systemctl list-unit-files | grep -q "^lsws\.service"; then
+    systemctl restart lsws
+  elif systemctl list-unit-files | grep -q "^lshttpd\.service"; then
+    systemctl restart lshttpd
+  elif [ -x /usr/local/lsws/bin/lswsctrl ]; then
+    /usr/local/lsws/bin/lswsctrl restart
+  fi
+
+  echo
+  echo -e "${GREEN}[完成] OLS + WordPress 标准安装完成（基础版）。${NC}"
+  echo "====================== 总结 ======================"
+  echo "  域名：       ${WP_DOMAIN}"
+  echo "  slug：       ${WP_SLUG}"
+  echo "  安装路径：   ${WP_DOCROOT}"
+  echo "  DB_HOST：    ${DB_HOST}"
+  echo "  DB_PORT：    ${DB_PORT}"
+  echo "  DB_NAME：    ${DB_NAME}"
+  echo "  DB_USER：    ${DB_USER}"
+  echo
+  echo -e "${YELLOW}[重要] 请确认：${NC}"
+  echo "  1) 在你的 DB 实例中已创建上述 DB / 用户 / 授权；"
+  echo "  2) Cloudflare 中，${WP_DOMAIN} 已正确指向本机 IP；"
+  echo "  3) 目前只开 HTTP 80，如使用 Cloudflare 可先用 Flexible 或 Full 模式访问测试。"
+  echo "=================================================="
 }
 
-# ========= 主流程 =========
 main() {
-  cecho "35" "===================================================="
-  cecho "35" "  OLS + WordPress 标准安装模块（${SCRIPT_VERSION}）"
-  cecho "35" "===================================================="
+  require_root
 
-  step1_env_check
-  step2_ols
-  step3_collect_site_info
-  step4_collect_db_redis
-  step5_prepare_dirs
-  step6_install_wp
-  step7_config_ols_vhost
+  echo
+  echo "===================================================="
+  echo "  OLS + WordPress 标准安装模块（v0.2）"
+  echo "===================================================="
 
-  info "全部步骤执行完成。"
+  header_step 1 7 "环境检查（root / 系统版本 / 架构）"
+  detect_env
+  pause
+
+  install_ols
+  collect_site_info
+  collect_db_info
+  prepare_docroot
+  install_wordpress
+  generate_wp_config
 }
 
 main "$@"
