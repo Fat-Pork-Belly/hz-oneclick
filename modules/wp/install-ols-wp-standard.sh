@@ -36,13 +36,14 @@ detect_env() {
   OS_NAME=$(lsb_release -si 2>/dev/null || echo "unknown")
   OS_VER=$(lsb_release -sr 2>/dev/null || echo "unknown")
   ARCH=$(uname -m)
-  echo -e "${INFO}[INFO] 检测到系统：${OS_NAME} ${OS_VER}${NC}"
-  echo -e "${INFO}[INFO] CPU 架构：${ARCH}${NC}"
+  echo -e "${GREEN}[INFO] 检测到系统：${OS_NAME} ${OS_VER}${NC}"
+  echo -e "${GREEN}[INFO] CPU 架构：${ARCH}${NC}"
 }
 
 install_ols() {
   header_step 2 7 "检查 / 安装 OpenLiteSpeed"
 
+  # 检查 OLS 是否存在
   if command -v lswsctrl >/dev/null 2>&1 || [ -d /usr/local/lsws ]; then
     echo -e "${YELLOW}[WARN] 检测到系统中已经存在 OLS 相关文件，将尝试直接启用。${NC}"
   else
@@ -83,10 +84,11 @@ install_ols() {
 
   sleep 2
 
-  if pgrep -f lshttpd >/dev/null 2>&1; then
+  # 简单检测 80 端口是否有进程监听（这里不强制失败，只提示）
+  if ss -ltnp | grep -q ":80 "; then
     echo -e "${GREEN}[INFO] OLS 进程正在运行。${NC}"
   else
-    echo -e "${RED}[ERROR] 无法确认 OLS 进程是否正常运行，请手动检查（systemctl status lsws）。${NC}"
+    echo -e "${YELLOW}[WARN] 未检测到 80 端口监听，请稍后手动检查 OLS 状态。${NC}"
   fi
 
   echo -e "${GREEN}[INFO] OLS 检查/安装步骤完成。${NC}"
@@ -98,11 +100,12 @@ collect_site_info() {
 
   # 域名
   while true; do
-    read -rp "请输入站点主域名（例如: ols.horizontech.page）: " WP_DOMAIN
-    if [ -n "$WP_DOMAIN" ]; then
-      break
+    read -rp "请输入站点域名（例如: example.com）: " WP_DOMAIN
+    if [ -z "$WP_DOMAIN" ]; then
+      echo -e "${YELLOW}[WARN] 域名不能为空，请重新输入。${NC}"
+      continue
     fi
-    echo -e "${YELLOW}[WARN] 域名不能为空，请重新输入。${NC}"
+    break
   done
 
   # slug
@@ -119,28 +122,35 @@ collect_site_info() {
 
   echo
   echo -e "${GREEN}[INFO] 将使用以下站点配置：${NC}"
-  echo "  域名:   ${WP_DOMAIN}"
-  echo "  slug:   ${WP_SLUG}"
-  echo "  路径:   ${WP_DOCROOT}"
+  echo "  域名: ${WP_DOMAIN}"
+  echo "  slug: ${WP_SLUG}"
+  echo "  docroot: ${WP_DOCROOT}"
   pause
 }
 
 collect_db_info() {
   header_step 4 7 "收集数据库信息（请确保数据库已在目标实例中创建好）"
 
-  echo -e "${YELLOW}[提示] 本脚本当前版本不会自动创建数据库，只会将你输入的信息写入 wp-config.php。${NC}"
-  echo -e "${YELLOW}[提示] 请提前在目标 DB 实例中创建对应的 DB / 用户 / 授权。${NC}"
+  echo -e "${YELLOW}[提示] 本模块不会自动创建数据库 / 用户，只负责把信息写入 wp-config.php。${NC}"
   echo
 
-  # DB host
-  read -rp "DB 主机（默认: 127.0.0.1，不要带端口）: " DB_HOST
-  DB_HOST=${DB_HOST:-127.0.0.1}
+  # DB Host
+  while true; do
+    read -rp "DB Host（例如: 127.0.0.1 或 tailscale 内网 IP，默认: 127.0.0.1）: " DB_HOST
+    DB_HOST=${DB_HOST:-127.0.0.1}
+    [ -n "$DB_HOST" ] && break
+    echo -e "${YELLOW}[WARN] DB Host 不能为空。${NC}"
+  done
 
-  # DB port
-  read -rp "DB 端口（默认: 3306）: " DB_PORT
-  DB_PORT=${DB_PORT:-3306}
+  # DB Port
+  while true; do
+    read -rp "DB 端口（默认: 3306）: " DB_PORT
+    DB_PORT=${DB_PORT:-3306}
+    [ -n "$DB_PORT" ] && break
+    echo -e "${YELLOW}[WARN] DB 端口不能为空。${NC}"
+  done
 
-  # DB 名
+  # DB Name
   while true; do
     read -rp "DB 名称（例如: ${WP_SLUG}_wp）: " DB_NAME
     [ -n "$DB_NAME" ] && break
@@ -173,6 +183,8 @@ collect_db_info() {
   echo "  DB_NAME: ${DB_NAME}"
   echo "  DB_USER: ${DB_USER}"
   echo "  表前缀: ${TABLE_PREFIX}"
+
+  echo
   echo -e "${YELLOW}[提示] 请确认目标 DB 实例已创建对应数据库和用户，并已授予权限。${NC}"
   pause
 }
@@ -197,9 +209,15 @@ prepare_docroot() {
 install_wordpress() {
   header_step 6 7 "下载并安装 WordPress"
 
-  if [ -f "${WP_DOCROOT}/wp-config.php" ]; then
-    echo -e "${YELLOW}[WARN] 检测到 ${WP_DOCROOT}/wp-config.php 已存在，将只更新 wp-config 数据库配置。${NC}"
-    return
+  if [ -d "${WP_DOCROOT}/wp-admin" ] || [ -f "${WP_DOCROOT}/wp-config.php" ]; then
+    echo -e "${YELLOW}[WARN] 检测到 ${WP_DOCROOT} 目录中已经存在 WordPress 文件。${NC}"
+    read -rp "是否跳过下载/解压 WordPress，只生成 wp-config.php？ [y/N，默认: n] " SKIP_WP_DL
+    SKIP_WP_DL=${SKIP_WP_DL:-n}
+    if [[ "$SKIP_WP_DL" =~ ^[Yy]$ ]]; then
+      echo -e "${YELLOW}[WARN] 将跳过 WordPress 下载与覆盖步骤。${NC}"
+      pause
+      return
+    fi
   fi
 
   tmpdir=$(mktemp -d)
@@ -242,127 +260,127 @@ define( 'DB_HOST', '${DB_HOST}:${DB_PORT}' );
 define( 'DB_CHARSET', 'utf8mb4' );
 define( 'DB_COLLATE', '' );
 
+${WP_SALTS}
+
 \$table_prefix = '${TABLE_PREFIX}';
 
-EOF
-
-    if [ -n "$WP_SALTS" ]; then
-      echo "$WP_SALTS" >> "${WP_DOCROOT}/wp-config.php"
-    else
-      echo "// TODO: 请到 https://api.wordpress.org/secret-key/1.1/salt/ 生成 SALT 并替换。" >> "${WP_DOCROOT}/wp-config.php"
-    fi
-
-    cat >> "${WP_DOCROOT}/wp-config.php" <<'EOF'
-
 define( 'WP_DEBUG', false );
-define( 'FS_METHOD', 'direct' );
 
 if ( ! defined( 'ABSPATH' ) ) {
-        define( 'ABSPATH', __DIR__ . '/' );
+  define( 'ABSPATH', __DIR__ . '/' );
 }
+
 require_once ABSPATH . 'wp-settings.php';
 EOF
 
     chown nobody:nogroup "${WP_DOCROOT}/wp-config.php"
     chmod 640 "${WP_DOCROOT}/wp-config.php"
   else
-    echo -e "${YELLOW}[WARN] ${WP_DOCROOT}/wp-config.php 已存在，请手工确认其中的 DB 配置信息。${NC}"
+    echo -e "${YELLOW}[WARN] 检测到已有 wp-config.php，将不会覆盖。${NC}"
   fi
 
-  # 创建 OLS vhost 配置
+  # 生成 OLS vhost 配置（基础版，仅 HTTP 80）
   echo
   echo -e "${GREEN}[INFO] 开始为该站点创建 OLS 虚拟主机配置...${NC}"
 
   local lsws_conf_root="/usr/local/lsws/conf"
   local vhost_dir="${lsws_conf_root}/vhosts/${WP_SLUG}"
+  mkdir -p "${vhost_dir}"
+
   local vhconf="${vhost_dir}/vhconf.conf"
-  local httpd_conf="${lsws_conf_root}/httpd_config.conf"
+  cat > "${vhconf}" <<EOF
+docRoot                  ${WP_DOCROOT}
+vhRoot                   ${vhost_dir}
+configFile               \$SERVER_ROOT/conf/vhosts/${WP_SLUG}/vhconf.conf
+allowSymbolicLink        1
 
-  mkdir -p "$vhost_dir"
+errorlog \$SERVER_ROOT/logs/${WP_SLUG}_error.log {
+  useServer               0
+  logLevel                WARN
+  rollingSize             10M
+  keepDays                30
+}
 
-  cat > "$vhconf" <<EOF
-docRoot                   ${WP_DOCROOT}
-vhDomain                  ${WP_DOMAIN}
-enableGzip                1
+accesslog \$SERVER_ROOT/logs/${WP_SLUG}_access.log {
+  useServer               0
+  rollingSize             10M
+  keepDays                30
+  compressArchive         1
+}
+
 index  {
   useServer               0
-  indexFiles              index.php,index.html
+  indexFiles              index.php, index.html
 }
+
 context / {
+  type                    NULL
   location                ${WP_DOCROOT}
   allowBrowse             1
 }
+
 phpIniOverride  {
 }
 EOF
 
-  # 在 httpd_config.conf 中追加 virtualhost 与 listener 配置（如果不存在）
-  if ! grep -q "virtualhost ${WP_SLUG}" "$httpd_conf"; then
-    cat >> "$httpd_conf" <<EOF
+  # 将 vhost 注册到 httpd_config.conf 中
+  local httpd_conf="${lsws_conf_root}/httpd_config.conf"
 
-virtualhost ${WP_SLUG} {
-  vhRoot                  /var/www/${WP_SLUG}
+  if ! grep -q "virtualHost ${WP_SLUG}" "${httpd_conf}"; then
+    cat >> "${httpd_conf}" <<EOF
+
+virtualHost ${WP_SLUG} {
+  vhRoot                  ${vhost_dir}
   configFile              conf/vhosts/${WP_SLUG}/vhconf.conf
-  allowSymbolLink         1
-  enableScript            1
-  restrained              1
 }
 EOF
   fi
 
-  # 创建/更新 HTTP listener 映射 80 端口
-  if ! grep -q "listener HTTP" "$httpd_conf"; then
-    cat >> "$httpd_conf" <<EOF
+  # 绑定到 80 端口 listener（这里假设默认 listener 名为 Default 或 listenerName 未改）
+  if ! grep -q "listener wordpress80" "${httpd_conf}"; then
+    cat >> "${httpd_conf}" <<EOF
 
-listener HTTP {
+listener wordpress80 {
   address                 *:80
   secure                  0
+}
+EOF
+  fi
+
+  # 为 listener wordpress80 添加 vhost 映射
+  if ! grep -q "wordpress80.*${WP_SLUG}" "${httpd_conf}"; then
+    cat >> "${httpd_conf}" <<EOF
+
+listener wordpress80 {
   map                     ${WP_SLUG} ${WP_DOMAIN}
 }
 EOF
-  else
-    # 如果 listener HTTP 已存在，只追加 map 行（避免重复）
-    if ! grep -q "map *${WP_SLUG}" "$httpd_conf"; then
-      # 简单做法：在 listener HTTP 段最后一行前插入 map
-      # 为避免复杂的 sed，这里直接追加一行提示，让用户手动检查
-      echo -e "${YELLOW}[WARN] 已存在 listener HTTP，请手动确认其中已包含 map ${WP_SLUG} ${WP_DOMAIN}。${NC}"
-    fi
   fi
 
-  # 重启 OLS
+  echo
   echo -e "${GREEN}[INFO] 重启 OLS 以应用新配置...${NC}"
   if systemctl list-unit-files | grep -q "^lsws\.service"; then
     systemctl restart lsws
   elif systemctl list-unit-files | grep -q "^lshttpd\.service"; then
     systemctl restart lshttpd
-  elif [ -x /usr/local/lsws/bin/lswsctrl ]; then
-    /usr/local/lsws/bin/lswsctrl restart
+  else
+    if [ -x /usr/local/lsws/bin/lswsctrl ]; then
+      /usr/local/lsws/bin/lswsctrl restart
+    fi
   fi
 
   echo
-  echo -e "${GREEN}[完成] OLS + WordPress 标准安装完成（基础版）。${NC}"
-  echo "====================== 总结 ======================"
-  echo "  域名：       ${WP_DOMAIN}"
-  echo "  slug：       ${WP_SLUG}"
-  echo "  安装路径：   ${WP_DOCROOT}"
-  echo "  DB_HOST：    ${DB_HOST}"
-  echo "  DB_PORT：    ${DB_PORT}"
-  echo "  DB_NAME：    ${DB_NAME}"
-  echo "  DB_USER：    ${DB_USER}"
-  echo
-  echo -e "${YELLOW}[重要] 请确认：${NC}"
-  echo "  1) 在你的 DB 实例中已创建上述 DB / 用户 / 授权；"
-  echo "  2) Cloudflare 中，${WP_DOMAIN} 已正确指向本机 IP；"
-  echo "  3) 目前只开 HTTP 80，如使用 Cloudflare 可先用 Flexible 或 Full 模式访问测试。"
-  echo "=================================================="
+  echo -e "${GREEN}[INFO] 所有步骤完成。请在浏览器访问 http://${WP_DOMAIN} 完成 WordPress 安装向导。${NC}"
+  pause
 }
 
 main() {
   require_root
 
-  echo
   echo "===================================================="
   echo "  OLS + WordPress 标准安装模块（v0.2）"
+  echo "  - 仅处理 HTTP 80"
+  echo "  - 不自动创建数据库/用户，只生成 wp-config.php 和 vhost"
   echo "===================================================="
 
   header_step 1 7 "环境检查（root / 系统版本 / 架构）"
