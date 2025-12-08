@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # install-ols-wp-standard.sh
-# v0.4 - OLS + WordPress 标准安装（基础版：HTTP 80，无自动建库）
+# v0.5 - OLS + WordPress 标准安装（HTTP + 可选自动配置 HTTPS）
 #
-# 变更摘要（相对 v0.3）：
-#   - Step 8 增加公网 IPv4 / IPv6 显示，提醒去 DNS 配置 A / AAAA 记录
-#   - Step 8 新增 SSL 选项说明（1=只用 HTTP + Cloudflare，2=之后自行配置证书）
-#   - listener HTTP 已存在时，自动插入 map 行而不是只给提示
-#   - 细节健壮性优化，避免未定义变量导致脚本中断
+# 主要特性：
+#   - 检测内存 <4G 时提示：仅前端 / LNMP / 回主菜单 / 退出
+#   - 复用已有 80 端口 listener，自动追加 map，避免 404
+#   - 结束时显示公网 IPv4 / IPv6，提醒配置 DNS
+#   - SSL 三选项：
+#       1) 只用 HTTP，TLS 交给 Cloudflare 等 CDN
+#       2) Cloudflare Origin 证书：粘贴证书+私钥，一键写入 vhost + HTTPS
+#       3) Let’s Encrypt：acme.sh 自动申请证书并写入 vhost（附带自动续期）
 
 set -euo pipefail
 
@@ -39,6 +42,16 @@ require_root() {
   fi
 }
 
+restart_lsws() {
+  if systemctl list-unit-files | grep -q "^lsws\.service"; then
+    systemctl restart lsws
+  elif systemctl list-unit-files | grep -q "^lshttpd\.service"; then
+    systemctl restart lshttpd
+  elif [ -x /usr/local/lsws/bin/lswsctrl ]; then
+    /usr/local/lsws/bin/lswsctrl restart
+  fi
+}
+
 OS_NAME="unknown"
 OS_VER="unknown"
 ARCH="unknown"
@@ -68,11 +81,47 @@ detect_env() {
   fi
 
   if [ "$HOST_CLASS" = "low" ]; then
-    echo -e "${YELLOW}[WARN] 当前机器内存 < 4G，建议数据库 / Redis 使用其他高配机器实例，"
-    echo -e "       本机只跑 OLS + WordPress 前端。${NC}"
+    echo -e "${YELLOW}[WARN] 当前机器内存 < 4G，建议数据库 / Redis 使用其他高配机器实例，${NC}"
+    echo -e "${YELLOW}       本机只跑 OLS + WordPress 前端，或者改为 LNMP。${NC}"
   else
     echo -e "${GREEN}[INFO] 该机器内存在正常范围，可作为主站或 DB 宿主（仍建议 DB/Redis 单独规划）。${NC}"
   fi
+}
+
+handle_low_mem_choice() {
+  if [ "$HOST_CLASS" != "low" ]; then
+    return
+  fi
+
+  echo
+  echo "请选择接下来的操作："
+  echo "  1) 仍然继续执行本模块（OLS + WordPress 一键安装）"
+  echo "  2) 改为 LNMP 一键安装（本模块退出，请在主菜单选择 LNMP 模块）"
+  echo "  3) 返回 hz-oneclick 主菜单（本模块不做任何改动直接退出）"
+  echo "  4) 直接退出脚本"
+  read -rp "请输入选项 [1-4，默认: 1]: " LM_CHOICE
+  LM_CHOICE=${LM_CHOICE:-1}
+
+  case "$LM_CHOICE" in
+    1)
+      echo -e "${GREEN}[INFO] 已选择在低内存机器上继续安装 OLS + WordPress。${NC}"
+      ;;
+    2)
+      echo -e "${YELLOW}[INFO] 请在 hz-oneclick 主菜单选择 LNMP 安装模块。${NC}"
+      exit 0
+      ;;
+    3)
+      echo -e "${GREEN}[INFO] 返回主菜单：本模块不做任何改动。${NC}"
+      exit 0
+      ;;
+    4)
+      echo -e "${GREEN}[INFO] 已退出脚本。${NC}"
+      exit 0
+      ;;
+    *)
+      echo -e "${YELLOW}[WARN] 无效输入，默认继续执行本模块。${NC}"
+      ;;
+  esac
 }
 
 install_ols() {
@@ -97,16 +146,7 @@ install_ols() {
     fi
   fi
 
-  if systemctl list-unit-files | grep -q "^lsws\.service"; then
-    systemctl enable lsws >/dev/null 2>&1 || true
-    systemctl restart lsws
-  elif systemctl list-unit-files | grep -q "^lshttpd\.service"; then
-    systemctl enable lshttpd >/dev/null 2>&1 || true
-    systemctl restart lshttpd
-  elif [ -x /usr/local/lsws/bin/lswsctrl ]; then
-    /usr/local/lsws/bin/lswsctrl restart
-  fi
-
+  restart_lsws
   sleep 2
 
   if pgrep -f lshttpd >/dev/null 2>&1; then
@@ -253,6 +293,148 @@ install_wordpress() {
   pause
 }
 
+attach_domain_to_http_listener() {
+  local httpd_conf="/usr/local/lsws/conf/httpd_config.conf"
+  local slug="$1"
+  local domain="$2"
+
+  # 已存在 map 时，不再重复添加
+  if grep -q "map[[:space:]]\+${slug}[[:space:]]\+${domain}" "$httpd_conf"; then
+    echo -e "${GREEN}[INFO] 已检测到 HTTP listener 中存在 map ${slug} ${domain}，跳过添加。${NC}"
+    return
+  fi
+
+  # 找第一个监听 :80 的 listener 名字
+  local http_listener
+  http_listener=$(
+    awk '
+      $1=="listener" {
+        name=$2
+        gsub("{","",name)
+        current=name
+      }
+      $1=="address" && $2 ~ /:80/ {
+        print current
+        exit
+      }
+    ' "$httpd_conf" 2>/dev/null || true
+  )
+
+  if [ -n "$http_listener" ]; then
+    echo -e "${GREEN}[INFO] 将域名 ${domain} 绑定到已有 HTTP listener: ${http_listener}${NC}"
+    awk -v ls="$http_listener" -v slug="$slug" -v dom="$domain" '
+      $1=="listener" {
+        name=$2
+        gsub("{","",name)
+        if (name == ls) {
+          in_l = 1
+        }
+      }
+      in_l && $0 ~ /^}/ {
+        printf("  map                     %s %s\n", slug, dom)
+        in_l = 0
+      }
+      { print }
+    ' "$httpd_conf" > "${httpd_conf}.tmp" && mv "${httpd_conf}.tmp" "$httpd_conf"
+  else
+    echo -e "${YELLOW}[WARN] 未检测到任何监听 :80 的 listener，将新建 listener HTTP。${NC}"
+    cat >> "$httpd_conf" <<EOF
+
+listener HTTP {
+  address                 *:80
+  secure                  0
+  map                     ${slug} ${domain}
+}
+EOF
+  fi
+}
+
+attach_domain_to_https_listener() {
+  local httpd_conf="/usr/local/lsws/conf/httpd_config.conf"
+  local slug="$1"
+  local domain="$2"
+
+  # 已存在 map 时不再添加
+  if grep -q "map[[:space:]]\+${slug}[[:space:]]\+${domain}" "$httpd_conf"; then
+    echo -e "${GREEN}[INFO] 已检测到 HTTPS listener 中存在 map ${slug} ${domain}，跳过添加。${NC}"
+    return
+  fi
+
+  # 找第一个监听 :443 的 listener
+  local https_listener
+  https_listener=$(
+    awk '
+      $1=="listener" {
+        name=$2
+        gsub("{","",name)
+        current=name
+      }
+      $1=="address" && $2 ~ /:443/ {
+        print current
+        exit
+      }
+    ' "$httpd_conf" 2>/dev/null || true
+  )
+
+  if [ -n "$https_listener" ]; then
+    echo -e "${GREEN}[INFO] 将域名 ${domain} 绑定到已有 HTTPS listener: ${https_listener}${NC}"
+    awk -v ls="$https_listener" -v slug="$slug" -v dom="$domain" '
+      $1=="listener" {
+        name=$2
+        gsub("{","",name)
+        if (name == ls) {
+          in_l = 1
+        }
+      }
+      in_l && $0 ~ /^}/ {
+        # 确保 secure 1 存在
+        print "  secure                  1"
+        printf("  map                     %s %s\n", slug, dom)
+        in_l = 0
+      }
+      { print }
+    ' "$httpd_conf" > "${httpd_conf}.tmp" && mv "${httpd_conf}.tmp" "$httpd_conf"
+  else
+    echo -e "${YELLOW}[WARN] 未检测到任何监听 :443 的 listener，将新建 listener SSL。${NC}"
+    cat >> "$httpd_conf" <<EOF
+
+listener SSL {
+  address                 *:443
+  secure                  1
+  map                     ${slug} ${domain}
+}
+EOF
+  fi
+}
+
+add_vhssl_block() {
+  local slug="$1"
+  local cert_path="$2"
+  local key_path="$3"
+
+  local vhconf="/usr/local/lsws/conf/vhosts/${slug}/vhconf.conf"
+
+  if ! grep -q "^vhssl" "$vhconf" 2>/dev/null; then
+    cat >> "$vhconf" <<EOF
+
+vhssl  {
+  keyFile                 ${key_path}
+  certFile                ${cert_path}
+}
+EOF
+  else
+    # 简单地在末尾追加一份，以最新为准
+    cat >> "$vhconf" <<EOF
+
+# 更新证书
+vhssl  {
+  keyFile                 ${key_path}
+  certFile                ${cert_path}
+}
+EOF
+  fi
+}
+
 generate_wp_config_and_ols() {
   header_step 7 8 "生成 wp-config.php 与 OLS 虚拟主机配置"
 
@@ -339,53 +521,119 @@ virtualhost ${WP_SLUG} {
 EOF
   fi
 
-  # listener HTTP + map
-  if grep -q "^listener[[:space:]]\+HTTP" "$httpd_conf"; then
-    # 若 listener HTTP 已存在且尚未 map 本站，则在其 block 尾部插入一行 map
-    if ! grep -q "map[[:space:]]\+${WP_SLUG}[[:space:]]\+${WP_DOMAIN}" "$httpd_conf"; then
-      awk -v slug="$WP_SLUG" -v dom="$WP_DOMAIN" '
-        BEGIN{in_http=0}
-        {
-          print $0
-          if ($1 == "listener" && $2 == "HTTP") {
-            in_http=1
-          } else if (in_http && $0 ~ /^}/) {
-            printf("  map                     %s %s\n", slug, dom)
-            in_http=0
-          }
-        }
-      ' "$httpd_conf" > "${httpd_conf}.tmp" && mv "${httpd_conf}.tmp" "$httpd_conf"
-    fi
-  else
-    # 不存在 listener HTTP：新建一个
-    cat >> "$httpd_conf" <<EOF
+  # HTTP listener 绑定
+  attach_domain_to_http_listener "${WP_SLUG}" "${WP_DOMAIN}"
 
-listener HTTP {
-  address                 *:80
-  secure                  0
-  map                     ${WP_SLUG} ${WP_DOMAIN}
-}
-EOF
-  fi
-
-  # 重启 OLS
   echo -e "${GREEN}[INFO] 重启 OLS 以应用新配置...${NC}"
-  if systemctl list-unit-files | grep -q "^lsws\.service"; then
-    systemctl restart lsws
-  elif systemctl list-unit-files | grep -q "^lshttpd\.service"; then
-    systemctl restart lshttpd
-  elif [ -x /usr/local/lsws/bin/lswsctrl ]; then
-    /usr/local/lsws/bin/lswsctrl restart
-  fi
+  restart_lsws
 
   echo -e "${GREEN}[INFO] OLS 配置步骤完成。${NC}"
   pause
 }
 
-show_ip_and_ssl_hint() {
-  header_step 8 8 "服务器 IP 信息与 SSL / Cloudflare 选项"
+setup_https_cf_origin() {
+  local cert_dir="/usr/local/lsws/conf/certs"
+  mkdir -p "$cert_dir"
 
-  # 公网 IP（优先 curl ifconfig.me）
+  local CERT_FILE="${cert_dir}/${WP_SLUG}-cf-origin.crt"
+  local KEY_FILE="${cert_dir}/${WP_SLUG}-cf-origin.key"
+
+  echo
+  echo -e "${GREEN}[INFO] 现在为 Cloudflare Origin 证书准备文件：${NC}"
+  echo "  域名：${WP_DOMAIN}"
+  echo
+  echo "步骤 1：请在浏览器中打开 Cloudflare 后台，为 ${WP_DOMAIN} 生成 Origin 证书。"
+  echo "        通常会给你一段证书（BEGIN CERTIFICATE...）和一段私钥（BEGIN PRIVATE KEY...）。"
+  echo
+  echo "步骤 2：回到本终端："
+  echo "  2.1 粘贴整段证书内容（含 BEGIN/END 行），粘贴完成后按 Ctrl+D 结束输入。"
+  echo
+
+  read -rp "准备好粘贴证书内容后按回车继续..." _
+
+  cat > "$CERT_FILE"
+
+  echo
+  echo "现在粘贴私钥内容（包含 BEGIN PRIVATE KEY / END PRIVATE KEY），"
+  echo "粘贴完成后同样按 Ctrl+D："
+  echo
+
+  cat > "$KEY_FILE"
+
+  chmod 600 "$CERT_FILE" "$KEY_FILE"
+  chown root:root "$CERT_FILE" "$KEY_FILE" || true
+
+  echo -e "${GREEN}[INFO] 证书与私钥已保存：${NC}"
+  echo "  certFile: $CERT_FILE"
+  echo "  keyFile : $KEY_FILE"
+
+  # 绑定 HTTPS listener + vhost vhssl
+  attach_domain_to_https_listener "${WP_SLUG}" "${WP_DOMAIN}"
+  add_vhssl_block "${WP_SLUG}" "$CERT_FILE" "$KEY_FILE"
+
+  echo -e "${GREEN}[INFO] 重启 OLS 应用 HTTPS 配置...${NC}"
+  restart_lsws
+}
+
+setup_https_letsencrypt() {
+  local ACME_HOME="${HOME}/.acme.sh"
+  local ACME_CMD="${ACME_HOME}/acme.sh"
+
+  echo
+  echo -e "${GREEN}[INFO] 将使用 acme.sh 自动申请 Let’s Encrypt 证书：${NC}"
+  echo "  域名：${WP_DOMAIN}"
+  echo "  Webroot：${WP_DOCROOT}"
+  echo
+  echo "请确认："
+  echo "  1）${WP_DOMAIN} 已解析到本机公网 IP；"
+  echo "  2）80 端口对公网开放；"
+  echo "  3）如使用 Cloudflare，请确保不会拦截 HTTP-01 验证请求。"
+  echo
+
+  read -rp "请输入用于 Let’s Encrypt 通知的邮箱（可留空，直接回车跳过）: " LE_EMAIL
+
+  if [ ! -x "$ACME_CMD" ]; then
+    echo -e "${GREEN}[INFO] acme.sh 未安装，开始安装...${NC}"
+    curl -fsSL https://get.acme.sh | sh
+  fi
+
+  ACME_CMD="${HOME}/.acme.sh/acme.sh"
+
+  if [ -n "${LE_EMAIL:-}" ]; then
+    "$ACME_CMD" --register-account -m "$LE_EMAIL" || true
+  fi
+
+  echo -e "${GREEN}[INFO] 正在通过 Webroot 模式申请证书...${NC}"
+  if ! "$ACME_CMD" --issue -d "$WP_DOMAIN" -w "$WP_DOCROOT"; then
+    echo -e "${RED}[ERROR] Let’s Encrypt 证书申请失败，请检查域名解析与 80 端口，再重试。${NC}"
+    return 1
+  fi
+
+  local cert_dir="/usr/local/lsws/conf/certs"
+  mkdir -p "$cert_dir"
+  local CERT_FILE="${cert_dir}/${WP_SLUG}-le-fullchain.cer"
+  local KEY_FILE="${cert_dir}/${WP_SLUG}-le.key"
+
+  "$ACME_CMD" --install-cert -d "$WP_DOMAIN" \
+    --fullchain-file "$CERT_FILE" \
+    --key-file "$KEY_FILE" \
+    --reloadcmd "systemctl restart lsws"
+
+  chmod 600 "$CERT_FILE" "$KEY_FILE"
+  chown root:root "$CERT_FILE" "$KEY_FILE" || true
+
+  echo -e "${GREEN}[INFO] Let’s Encrypt 证书已安装：${NC}"
+  echo "  certFile: $CERT_FILE"
+  echo "  keyFile : $KEY_FILE"
+
+  attach_domain_to_https_listener "${WP_SLUG}" "${WP_DOMAIN}"
+  add_vhssl_block "${WP_SLUG}" "$CERT_FILE" "$KEY_FILE"
+}
+
+show_ip_and_ssl_menu() {
+  header_step 8 8 "服务器 IP 信息与 SSL / HTTPS 选项"
+
+  # 公网 IP
   local PUB4 PUB6
   PUB4=$(curl -4s --max-time 5 https://ifconfig.me 2>/dev/null || true)
   PUB6=$(curl -6s --max-time 5 https://ifconfig.me 2>/dev/null || true)
@@ -399,42 +647,44 @@ show_ip_and_ssl_hint() {
   if [ -n "${PUB6:-}" ]; then
     echo "  公网 IPv6: ${PUB6}  （AAAA 记录，如已启用 IPv6）"
   else
-    echo "  公网 IPv6: 未能自动检测（如未开 IPv6 可忽略）。"
+    echo "  公网 IPv6: 未能自动检测（如未启用 IPv6 可忽略）。"
   fi
 
   echo
   echo "当前站点域名：${WP_DOMAIN}"
-  echo "  通常你需要在 DNS 里添加："
+  echo "  通常你需要在 DNS 中添加："
   echo "    A    ${WP_DOMAIN} -> 公网 IPv4"
   echo "    AAAA ${WP_DOMAIN} -> 公网 IPv6（如启用）"
-
   echo
-  echo "接下来请选择你打算如何处理 SSL / HTTPS："
-  echo "  1) 暂时只用 HTTP，TLS 交给 Cloudflare 等 CDN（推荐入门）"
-  echo "  2) 稍后自己在这台机上配置证书（Cloudflare Origin / Let’s Encrypt）"
-  read -rp "请选择 [1/2，默认: 1]: " SSL_CHOICE
+
+  echo "请选择 SSL / HTTPS 模式："
+  echo "  1) 仅使用 HTTP 源站，由 Cloudflare 等 CDN 终止 TLS"
+  echo "  2) 使用 Cloudflare Origin 证书（粘贴证书+私钥，一键配置 HTTPS）"
+  echo "  3) 使用 Let’s Encrypt 自动申请证书（acme.sh，自动续期）"
+  read -rp "请选择 [1/2/3，默认: 1]: " SSL_CHOICE
   SSL_CHOICE=${SSL_CHOICE:-1}
 
-  if [ "$SSL_CHOICE" = "1" ]; then
-    echo
-    echo -e "${GREEN}[INFO] 已选择：仅配置 HTTP，由 Cloudflare 终止 TLS。${NC}"
-    echo "  - Cloudflare 后台："
-    echo "      * 刚开始可以用 Flexible 或 Full 模式，方便快速验证。"
-    echo "      * 当你在源站配置好证书后，可以改为 Full (strict)。"
-  else
-    echo
-    echo -e "${YELLOW}[提示] 你选择：稍后自行在源站配置证书。${NC}"
-    echo "  - 建议两种方式："
-    echo "      1）Cloudflare Origin Cert：在 CF 后台生成 Origin 证书 + 私钥，"
-    echo "         上传到本机固定路径（例如 /usr/local/lsws/conf/certs/${WP_SLUG}.crt/.key），"
-    echo "         然后在 OLS vhost 中开启 HTTPS 并指定证书。"
-    echo "      2）Let’s Encrypt：使用 acme.sh 或 certbot 申请证书，"
-    echo "         同样放到 /usr/local/lsws/conf/certs/ 下，并在 OLS 中引用。"
-    echo "  - 未来 hz-oneclick 会提供独立模块（例如 setup-ols-ssl.sh）自动化这部分。"
-  fi
+  case "$SSL_CHOICE" in
+    1)
+      echo
+      echo -e "${GREEN}[INFO] 已选择：源站只提供 HTTP，TLS 交给 Cloudflare 等 CDN。${NC}"
+      echo "  - Cloudflare 后台建议："
+      echo "      * 可先用 Flexible 或 Full 模式快速验证站点是否正常；"
+      echo "      * 当你在源站配好证书后再切换到 Full (strict)。"
+      ;;
+    2)
+      setup_https_cf_origin
+      ;;
+    3)
+      setup_https_letsencrypt || true
+      ;;
+    *)
+      echo -e "${YELLOW}[WARN] 无效输入，按选项 1 处理（仅 HTTP）。${NC}"
+      ;;
+  esac
 
   echo
-  echo -e "${GREEN}[完成] OLS + WordPress 标准安装（v0.4）执行完毕。${NC}"
+  echo -e "${GREEN}[完成] OLS + WordPress 标准安装（v0.5）执行完毕。${NC}"
   echo "  域名：     ${WP_DOMAIN}"
   echo "  slug：     ${WP_SLUG}"
   echo "  安装路径： ${WP_DOCROOT}"
@@ -449,11 +699,12 @@ main() {
 
   echo
   echo "===================================================="
-  echo "  OLS + WordPress 标准安装模块（v0.4）"
+  echo "  OLS + WordPress 标准安装模块（v0.5）"
   echo "===================================================="
 
   header_step 1 8 "环境检查（root / 系统版本 / 架构 / 内存）"
   detect_env
+  handle_low_mem_choice
   pause
 
   install_ols
@@ -462,7 +713,7 @@ main() {
   prepare_docroot
   install_wordpress
   generate_wp_config_and_ols
-  show_ip_and_ssl_hint
+  show_ip_and_ssl_menu
 }
 
 main "$@"
