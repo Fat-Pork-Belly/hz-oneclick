@@ -518,12 +518,54 @@ prompt_db_info() {
     log_warn "DB 用户名不能为空。"
   done
 
+  # 密码需要输入两次确认，防止手滑
   while :; do
     read -rsp "DB 密码（不会回显，请确保与该 DB 用户的真实密码一致）: " DB_PASSWORD
     echo
-    [ -n "$DB_PASSWORD" ] && break
-    log_warn "DB 密码不能为空。"
+    if [ -z "$DB_PASSWORD" ]; then
+      log_warn "DB 密码不能为空。"
+      continue
+    fi
+
+    read -rsp "请再次输入 DB 密码进行确认: " DB_PASSWORD_CONFIRM
+    echo
+    if [ "$DB_PASSWORD" != "$DB_PASSWORD_CONFIRM" ]; then
+      log_error "两次输入的 DB 密码不一致，请重新输入。"
+      continue
+    fi
+
+    unset DB_PASSWORD_CONFIRM
+    break
   done
+}
+
+test_db_connection() {
+  log_step "测试数据库连通性"
+
+  local host="$DB_HOST"
+  local port="3306"
+
+  # 允许 DB_HOST 以 host:port 形式填写
+  if [[ "$host" == *:* ]]; then
+    port="${host##*:}"
+    host="${host%%:*}"
+  fi
+
+  # 确保有 mysql/mariadb 客户端可用
+  if ! command -v mysql >/dev/null 2>&1; then
+    log_warn "未找到 mysql 客户端，将尝试安装 mariadb-client 用于数据库连通性测试。"
+    apt update
+    apt install -y mariadb-client
+  fi
+
+  if mysql -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -e "USE \`$DB_NAME\`; SELECT 1;" >/dev/null 2>&1; then
+    log_info "成功连接到数据库：${DB_USER}@${host}:${port} / ${DB_NAME}"
+    return 0
+  else
+    log_error "无法连接到数据库：${DB_USER}@${host}:${port} / ${DB_NAME}"
+    log_warn "常见原因：密码错误 / 数据库未启动 / 网络或防火墙未放行 / 用户无该库权限。"
+    return 1
+  fi
 }
 
 install_packages() {
@@ -687,10 +729,15 @@ generate_wp_config() {
 
   cp "$sample" "$wp_config"
 
-  sed -i "s/database_name_here/${DB_NAME}/" "$wp_config"
-  sed -i "s/username_here/${DB_USER}/" "$wp_config"
-  sed -i "s/password_here/${DB_PASSWORD}/" "$wp_config"
-  sed -i "s/localhost/${DB_HOST}/" "$wp_config"
+  # 处理包含 & 或反斜杠等特殊字符的密码，避免被 sed 误替换
+  local esc_db_password="$DB_PASSWORD"
+  esc_db_password=${esc_db_password//\\/\\\\}
+  esc_db_password=${esc_db_password//&/\\&}
+
+  sed -i "s|database_name_here|${DB_NAME}|" "$wp_config"
+  sed -i "s|username_here|${DB_USER}|" "$wp_config"
+  sed -i "s|password_here|${esc_db_password}|" "$wp_config"
+  sed -i "s|localhost|${DB_HOST}|" "$wp_config"
 
   log_info "已根据输入生成 wp-config.php（DB_* 信息已写入）。"
 }
@@ -891,10 +938,39 @@ print_summary() {
 }
 
 install_ols_wp_flow() {
+  local opt
+
   require_root
   check_os
   prompt_site_info
-  prompt_db_info
+
+  # 循环输入 DB 信息并测试连通性，直到成功或用户选择退出
+  while :; do
+    prompt_db_info
+
+    if test_db_connection; then
+      break
+    fi
+
+    echo "-------------------------------------"
+    echo "  1) 重新输入数据库信息"
+    echo "  0) 退出脚本"
+    echo "-------------------------------------"
+    read -rp "请输入选项 [0-1]: " opt
+    case "$opt" in
+      1)
+        # 回到 while 顶部，重新输入
+        ;;
+      0)
+        log_info "已退出脚本。"
+        exit 1
+        ;;
+      *)
+        log_warn "输入无效，将默认重新输入数据库信息。"
+        ;;
+    esac
+  done
+
   install_packages
   setup_vhost_config
   download_wordpress
@@ -904,7 +980,6 @@ install_ols_wp_flow() {
   configure_ssl
   print_summary
 
-  local opt
   echo "-------------------------------------"
   echo "  1) 返回主菜单"
   echo "  0) 退出脚本"
