@@ -4,84 +4,26 @@ on:
   pull_request:
     types: [labeled]
 
-concurrency:
-  group: automerge-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 permissions:
   pull-requests: write
   contents: write
+
+concurrency:
+  group: automerge-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   enable-automerge:
     if: >
       github.event.pull_request.draft == false &&
+      github.event.label.name == 'codex' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (startsWith(github.head_ref, 'codex/') || contains(join(github.event.pull_request.labels.*.name, ','), 'codex'))
+      startsWith(github.event.pull_request.head.ref, 'codex/')
     runs-on: ubuntu-latest
     steps:
-      - name: Check if auto-merge already enabled
-        id: check-automerge
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          if gh pr view "$PR" -R "${{ github.repository }}" --json autoMergeRequest -q '.autoMergeRequest != null'; then
-            echo "Auto-merge already enabled."
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Enable auto-merge
-        if: steps.check-automerge.outputs.enabled == 'false'
+      - name: Enable auto-merge (squash)
         uses: peter-evans/enable-pull-request-automerge@v3
-        continue-on-error: true
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: squash
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify auto-merge is enabled
-        if: steps.check-automerge.outputs.enabled == 'false'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          owner="${GITHUB_REPOSITORY%/*}"
-          repo="${GITHUB_REPOSITORY#*/}"
-          query=$(cat <<'EOF'
-          query($owner:String!, $repo:String!, $number:Int!) {
-            repository(owner: $owner, name: $repo) {
-              pullRequest(number: $number) {
-                autoMergeRequest {
-                  enabledAt
-                }
-              }
-            }
-          }
-          EOF
-          )
-
-          payload=$(jq -n \
-            --arg query "$query" \
-            --arg owner "$owner" \
-            --arg repo "$repo" \
-            --argjson number "$PR_NUMBER" \
-            '{query: $query, variables: {owner: $owner, repo: $repo, number: $number}}')
-
-          response=$(curl -s \
-            -H "Authorization: bearer ${GITHUB_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -X POST \
-            -d "$payload" \
-            https://api.github.com/graphql)
-
-          enabled_at=$(echo "$response" | jq -r '.data.repository.pullRequest.autoMergeRequest.enabledAt')
-
-          if [ "$enabled_at" = "null" ] || [ -z "$enabled_at" ]; then
-            echo "Auto-merge was not enabled. Response:"
-            echo "$response"
-            exit 1
-          fi
