@@ -31,10 +31,22 @@ NC="\033[0m"
 
 SCRIPT_VERSION="0.9"
 
-log_info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
-log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
-log_step()  { echo -e "\n${CYAN}==== $* ====${NC}\n"; }
+log_info()  {
+  # [ANCHOR:LOG_INFO]
+  echo -e "${GREEN}[INFO]${NC} $*"
+}
+log_warn()  {
+  # [ANCHOR:LOG_WARN]
+  echo -e "${YELLOW}[WARN]${NC} $*"
+}
+log_error() {
+  # [ANCHOR:LOG_ERROR]
+  echo -e "${RED}[ERROR]${NC} $*"
+}
+log_step()  {
+  # [ANCHOR:LOG_STEP]
+  echo -e "\n${CYAN}==== $* ====${NC}\n"
+}
 
 trap 'log_error "脚本执行中断（行号: $LINENO）。"; exit 1' ERR
 
@@ -63,11 +75,13 @@ check_os() {
 
 # 读取内存 MB
 get_ram_mb() {
+  # [ANCHOR:GET_RAM_MB]
   awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || echo 0
 }
 
 # 探测公网 IP（尽量避免 10.x / 内网）
 _detect_public_ip() {
+  # [ANCHOR:DETECT_PUBLIC_IP]
   local ipv4 ipv6
   ipv4="$(curl -4s --max-time 5 https://ifconfig.me || true)"
   if ! echo "$ipv4" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -178,6 +192,7 @@ remove_ols_wp_menu() {
 }
 
 remove_ols_global() {
+  # [ANCHOR:REMOVE_OLS_GLOBAL]
   echo -e "${YELLOW}[警告]${NC} 即将 ${BOLD}彻底移除本机 OLS${NC}"
   echo "本操作将："
   echo "  - systemctl 停止/禁用 lsws;"
@@ -219,6 +234,7 @@ remove_ols_global() {
 }
 
 remove_wp_by_slug() {
+  # [ANCHOR:REMOVE_WP_BY_SLUG]
   local LSWS_ROOT="/usr/local/lsws"
   local HTTPD_CONF="${LSWS_ROOT}/conf/httpd_config.conf"
 
@@ -309,6 +325,7 @@ remove_wp_by_slug() {
 ##################################
 
 cleanup_db_redis_menu() {
+  # [ANCHOR:CLEANUP_DB_REDIS_MENU]
   echo -e "${YELLOW}[危险]${NC} 本菜单会对数据库 / Redis 执行删除/清空操作，请务必提前备份。"
   echo
   echo "4) 清理数据库 / Redis（应在 DB / Redis 所在机器执行）："
@@ -334,6 +351,7 @@ cleanup_db_redis_menu() {
 }
 
 cleanup_db_interactive() {
+  # [ANCHOR:DB_CLEANUP_FLOW]
   if ! command -v mysql >/dev/null 2>&1; then
     log_error "未找到 mysql 命令，无法执行数据库清理。"
     read -rp "按回车返回“清理数据库 / Redis”菜单..." _
@@ -415,6 +433,7 @@ cleanup_db_interactive() {
 }
 
 cleanup_redis_interactive() {
+  # [ANCHOR:REDIS_CLEANUP_FLOW]
   if ! command -v redis-cli >/dev/null 2>&1; then
     log_error "未找到 redis-cli，无法执行 Redis 清理。"
     read -rp "按回车返回“清理数据库 / Redis”菜单..." _
@@ -499,6 +518,7 @@ prompt_site_info() {
 }
 
 prompt_db_info() {
+  # [ANCHOR:DB_INFO_PROMPT]
   echo
   echo "================ 数据库设置（必须已在目标 DB 实例中创建） ================"
   echo "请先在你的数据库实例中『手动』创建好："
@@ -547,6 +567,7 @@ prompt_db_info() {
 }
 
 test_db_connection() {
+  # [ANCHOR:DB_CONN_TEST]
   log_step "测试数据库连通性"
 
   local host="$DB_HOST"
@@ -602,6 +623,7 @@ install_packages() {
 }
 
 setup_vhost_config() {
+  # [ANCHOR:SETUP_VHOST_CONFIG]
   log_step "配置 OpenLiteSpeed Virtual Host"
 
   local LSWS_ROOT="/usr/local/lsws"
@@ -725,6 +747,7 @@ download_wordpress() {
 }
 
 generate_wp_config() {
+  # [ANCHOR:WP_CONFIG_GENERATE]
   log_step "生成 wp-config.php"
 
   local wp_config="${DOC_ROOT}/wp-config.php"
