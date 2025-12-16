@@ -2,10 +2,10 @@ name: Auto-merge (bot PRs)
 
 on:
   pull_request:
-    types: [synchronize, reopened, ready_for_review, labeled]
+    types: [labeled, synchronize, reopened, ready_for_review]
 
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.number }}
+  group: auto-merge-${{ github.repository }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -20,14 +20,44 @@ jobs:
       (startsWith(github.head_ref, 'codex/') || contains(join(github.event.pull_request.labels.*.name, ','), 'codex'))
     runs-on: ubuntu-latest
     steps:
+      - name: Check if auto-merge already enabled
+        id: check-auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          enabled=$(gh pr view "$PR_NUMBER" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
+          if [ "$enabled" = "true" ]; then
+            echo "Auto-merge already enabled."
+            exit 0
+          fi
       - name: Enable auto-merge
-        uses: peter-evans/enable-pull-request-automerge@v3
-        continue-on-error: true
-        with:
-          pull-request-number: ${{ github.event.pull_request.number }}
-          merge-method: squash
-          token: ${{ secrets.GITHUB_TOKEN }}
+        if: steps.check-auto-merge.outputs.enabled != 'true'
+        id: enable-automerge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          output=$(gh pr merge "$PR_NUMBER" --squash --auto 2>&1)
+          status=$?
+
+          echo "$output"
+
+          if [ $status -ne 0 ]; then
+            if echo "$output" | grep -qi "Merge already in progress"; then
+              echo "skip_verify=true" >> "$GITHUB_OUTPUT"
+              echo "Merge already in progress; exiting successfully."
+              exit 0
+            fi
+
+            exit $status
+          fi
+
+          echo "skip_verify=false" >> "$GITHUB_OUTPUT"
       - name: Verify auto-merge is enabled
+        if: steps.check-auto-merge.outputs.enabled != 'true' && steps.enable-automerge.outputs.skip_verify != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
