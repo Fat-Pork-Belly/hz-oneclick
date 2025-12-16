@@ -107,6 +107,69 @@ _detect_public_ip() {
   SERVER_IPV6="$ipv6"
 }
 
+# [ANCHOR:POST_INSTALL_SUMMARY]
+get_public_ipv4() {
+  # 优先用外网探测；失败则输出空
+  curl -fsS4 --max-time 3 https://api.ipify.org 2>/dev/null || true
+}
+
+get_public_ipv6() {
+  curl -fsS6 --max-time 3 https://api64.ipify.org 2>/dev/null || true
+}
+
+show_post_install_summary() {
+  local domain="$1"
+
+  local ipv4 ipv6
+  ipv4="$(get_public_ipv4)"
+  ipv6="$(get_public_ipv6)"
+
+  echo
+  echo -e "${CYAN}================ 部署信息（请务必保存） ================${NC}"
+  echo -e "${GREEN}域名：${NC}${domain}"
+
+  if [[ -n "${ipv4}" ]]; then
+    echo -e "${GREEN}公网 IPv4：${NC}${ipv4}"
+  else
+    echo -e "${YELLOW}公网 IPv4：${NC}未检测到（可稍后自行查询）"
+  fi
+
+  if [[ -n "${ipv6}" ]]; then
+    echo -e "${GREEN}公网 IPv6：${NC}${ipv6}"
+  else
+    echo -e "${YELLOW}公网 IPv6：${NC}未检测到（或当前网络未启用 IPv6）"
+  fi
+
+  echo
+  echo -e "${CYAN}DNS 解析建议（示例）：${NC}"
+  if [[ -n "${ipv4}" ]]; then
+    echo -e "  A     ${domain}  ->  ${ipv4}"
+  else
+    echo -e "  A     ${domain}  ->  <你的服务器公网IPv4>"
+  fi
+  if [[ -n "${ipv6}" ]]; then
+    echo -e "  AAAA  ${domain}  ->  ${ipv6}"
+  else
+    echo -e "  AAAA  ${domain}  ->  <可选：你的服务器公网IPv6>"
+  fi
+
+  echo
+  echo -e "${CYAN}端口提醒：${NC}"
+  echo -e "  - 请确保云防火墙与 UFW 均放行：80 / 443 / 7080"
+  echo -e "  - 若 80/443 未放行，会导致申请/访问 HTTPS 失败或站点不可访问"
+
+  echo
+  echo -e "${CYAN}访问入口：${NC}"
+  echo -e "  - https://${domain}/"
+  echo -e "  - https://${domain}/wp-admin/"
+  echo -e "  - http://${domain}/  （用于排查 301/跳转/证书问题）"
+
+  echo
+  echo -e "${CYAN}=========================================================${NC}"
+  echo
+  read -rp "按回车返回菜单..." _
+}
+
 ########################
 #  顶层主菜单         #
 ########################
@@ -897,6 +960,8 @@ EOF
         fi
       fi
       systemctl restart lsws
+      # [ANCHOR:AFTER_SSL_SUMMARY]
+      show_post_install_summary "${SITE_DOMAIN}"
       ;;
     3)
       # [ANCHOR:SSL_LE]
@@ -946,6 +1011,8 @@ EOF
         fi
       fi
       systemctl restart lsws
+      # [ANCHOR:AFTER_SSL_SUMMARY]
+      show_post_install_summary "${SITE_DOMAIN}"
       ;;
     *)
       log_warn "未知选项，暂不配置 SSL。";
