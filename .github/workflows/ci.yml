@@ -29,11 +29,25 @@ jobs:
             fi
           fi
 
+      - name: Bash syntax check
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(find . -type f -name '*.sh' -not -path './modules/*' -print0)
+          echo "Found ${#files[@]} shell scripts for bash -n"
+          for f in "${files[@]}"; do
+            bash -n "$f" || exit_code=$?
+          done
+          if [[ -n "${exit_code:-}" ]]; then
+            echo "WARN: bash -n reported syntax issues"
+            exit "$exit_code"
+          fi
+
       - name: ShellCheck
         continue-on-error: true
         run: |
           set -euo pipefail
-          mapfile -d '' files < <(find . -type f -name '*.sh' -print0)
+          mapfile -d '' files < <(find . -type f -name '*.sh' -not -path './modules/*' -print0)
           echo "Found ${#files[@]} shell scripts"
           shellcheck -x "${files[@]}" || true
 
@@ -41,7 +55,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          mapfile -d '' files < <(find . -type f -name '*.sh' -print0)
+          mapfile -d '' files < <(find . -type f -name '*.sh' -not -path './modules/*' -print0)
           shfmt -d -i 2 -ci -sr "${files[@]}" || true
 
       - name: Smoke test (safe)
