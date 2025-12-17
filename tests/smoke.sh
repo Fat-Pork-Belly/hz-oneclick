@@ -16,4 +16,22 @@ else
   echo "[smoke] shellcheck not available; skipping static lint"
 fi
 
+echo "[smoke] baseline_dns diagnostics smoke"
+if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_dns.sh" ]; then
+  # shellcheck source=/dev/null
+  . ./lib/baseline.sh
+  # shellcheck source=/dev/null
+  . ./lib/baseline_dns.sh
+
+  baseline_init
+  baseline_dns_run "abc.yourdomain.com" "en"
+  details_output="$(baseline_print_details)"
+
+  for field in PUBLIC_IPV4 PUBLIC_IPV6 DNS_A_RECORD DNS_AAAA_RECORD A_MATCH AAAA_MATCH; do
+    echo "$details_output" | grep -q "$field"
+  done
+else
+  echo "[smoke] baseline libraries not found; skipping baseline_dns smoke"
+fi
+
 echo "[smoke] OK"
