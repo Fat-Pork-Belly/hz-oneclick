@@ -12,6 +12,7 @@ COMMON_LIB="${REPO_ROOT}/lib/common.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
 BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
+BASELINE_DB_LIB="${REPO_ROOT}/lib/baseline_db.sh"
 
 cd /
 
@@ -55,6 +56,11 @@ fi
 if [ -r "$BASELINE_HTTPS_LIB" ]; then
   # shellcheck source=/dev/null
   . "$BASELINE_HTTPS_LIB"
+fi
+
+if [ -r "$BASELINE_DB_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$BASELINE_DB_LIB"
 fi
 
 : "${TIER_LITE:=lite}"
@@ -258,7 +264,7 @@ baseline_print_keywords() {
 }
 
 run_lomp_baseline_diagnostics() {
-  local domain lang
+  local domain lang choice db_host db_port db_name db_user db_pass
   lang="${LANG:-zh}"
   if [[ "${lang,,}" == en* ]]; then
     lang="en"
@@ -266,44 +272,160 @@ run_lomp_baseline_diagnostics() {
     lang="zh"
   fi
 
-  baseline_init
-
-  domain="${SITE_DOMAIN:-}"
-  if [ -z "$domain" ]; then
+  while true; do
     if [ "$lang" = "en" ]; then
-      read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
+      echo "=== Baseline Diagnostics ==="
+      echo "Advisory checks only: no external configs will be modified and passwords are not stored."
+      echo "Select a group to diagnose:"
+      echo "  1) HTTPS/521"
+      echo "  2) DB"
+      echo "  0) Return to main menu"
+      read -rp "Choose [0-2]: " choice
     else
-      read -rp "请输入要诊断的域名（例如: abc.yourdomain.com）: " domain
+      echo "=== 基线诊断（Baseline） ==="
+      echo "仅做连通性诊断，不会修改外部配置，也不会保存密码。"
+      echo "请选择要诊断的组："
+      echo "  1) HTTPS/521"
+      echo "  2) DB"
+      echo "  0) 返回主菜单"
+      read -rp "请输入选项 [0-2]: " choice
     fi
-    domain="${domain//[[:space:]]/}"
-  fi
+    echo
 
-  if [ -z "$domain" ]; then
-    if [ "$lang" = "en" ]; then
-      log_error "Domain is required to run baseline diagnostics."
-    else
-      log_error "未提供域名，无法执行诊断。"
-    fi
-    return
-  fi
+    case "$choice" in
+      1)
+        baseline_init
+        domain="${SITE_DOMAIN:-}"
+        if [ -z "$domain" ]; then
+          if [ "$lang" = "en" ]; then
+            read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
+          else
+            read -rp "请输入要诊断的域名（例如: abc.yourdomain.com）: " domain
+          fi
+          domain="${domain//[[:space:]]/}"
+        fi
 
-  if [ "$lang" = "en" ]; then
-    echo "=== Baseline Diagnostics ==="
-    echo "Target domain: ${domain}"
-  else
-    echo "=== 基线诊断（Baseline） ==="
-    echo "诊断域名: ${domain}"
-  fi
+        if [ -z "$domain" ]; then
+          if [ "$lang" = "en" ]; then
+            log_error "Domain is required to run baseline diagnostics."
+          else
+            log_error "未提供域名，无法执行诊断。"
+          fi
+          continue
+        fi
 
-  baseline_https_run "$domain" "$lang"
+        if [ "$lang" = "en" ]; then
+          echo "Target domain: ${domain}"
+        else
+          echo "诊断域名: ${domain}"
+        fi
 
-  baseline_print_summary
-  baseline_print_details
-  baseline_print_keywords
+        baseline_https_run "$domain" "$lang"
 
-  echo
-  read -rp "按回车返回主菜单..." _
-  show_main_menu
+        baseline_print_summary
+        baseline_print_details
+        baseline_print_keywords
+
+        echo
+        if [ "$lang" = "en" ]; then
+          read -rp "Press Enter to return to Baseline menu..." _
+        else
+          read -rp "按回车返回 Baseline 菜单..." _
+        fi
+        ;;
+      2)
+        baseline_init
+        if [ "$lang" = "en" ]; then
+          read -rp "DB host [127.0.0.1]: " db_host
+        else
+          read -rp "请输入数据库地址 [127.0.0.1]: " db_host
+        fi
+        db_host="${db_host//[[:space:]]/}"
+        if [ -z "$db_host" ]; then
+          db_host="127.0.0.1"
+        fi
+
+        if [ "$lang" = "en" ]; then
+          read -rp "DB port [3306]: " db_port
+        else
+          read -rp "请输入数据库端口 [3306]: " db_port
+        fi
+        db_port="${db_port//[[:space:]]/}"
+        if [ -z "$db_port" ]; then
+          db_port="3306"
+        fi
+
+        if [ "$lang" = "en" ]; then
+          read -rp "DB name (optional, e.g., wordpress): " db_name
+        else
+          read -rp "数据库名（可选，建议填写，例如 wordpress）: " db_name
+        fi
+        db_name="${db_name//[[:space:]]/}"
+
+        while true; do
+          if [ "$lang" = "en" ]; then
+            read -rp "DB user (required): " db_user
+          else
+            read -rp "数据库用户名（必填）: " db_user
+          fi
+          db_user="${db_user//[[:space:]]/}"
+          if [ -n "$db_user" ]; then
+            break
+          fi
+          if [ "$lang" = "en" ]; then
+            log_warn "DB user is required."
+          else
+            log_warn "数据库用户名不能为空。"
+          fi
+        done
+
+        while true; do
+          if [ "$lang" = "en" ]; then
+            read -srp "DB password (required, hidden): " db_pass
+          else
+            read -srp "数据库密码（必填，输入不回显）: " db_pass
+          fi
+          echo
+          if [ -n "$db_pass" ]; then
+            break
+          fi
+          if [ "$lang" = "en" ]; then
+            log_warn "DB password is required."
+          else
+            log_warn "数据库密码不能为空。"
+          fi
+        done
+
+        echo
+        baseline_db_run "$db_host" "$db_port" "$db_name" "$db_user" "$db_pass" "$lang"
+
+        baseline_print_summary
+        baseline_print_details
+        baseline_print_keywords
+
+        unset db_pass
+        echo
+        if [ "$lang" = "en" ]; then
+          read -rp "Press Enter to return to Baseline menu..." _
+        else
+          read -rp "按回车返回 Baseline 菜单..." _
+        fi
+        ;;
+      0)
+        show_main_menu
+        return
+        ;;
+      *)
+        if [ "$lang" = "en" ]; then
+          log_warn "Invalid input, please choose 0-2."
+        else
+          log_warn "无效输入，请选择 0-2。"
+        fi
+        ;;
+    esac
+
+    echo
+  done
 }
 
 detect_public_ip() {
