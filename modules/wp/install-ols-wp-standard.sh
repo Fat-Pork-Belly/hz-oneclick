@@ -86,6 +86,23 @@ get_default_lomp_tier() {
 
 LOMP_DEFAULT_TIER="$(get_default_lomp_tier)"
 
+get_recommended_lomp_tier() {
+  # [ANCHOR:GET_RECOMMENDED_TIER]
+  local raw_tier normalized
+
+  detect_system_profile
+  detect_recommended_tier
+
+  raw_tier="${RECOMMENDED_TIER:-}"
+  normalized="$(normalize_tier "${raw_tier,,}")" || true
+
+  if [ -z "$normalized" ]; then
+    normalized="$LOMP_DEFAULT_TIER"
+  fi
+
+  printf "%s" "$normalized"
+}
+
 log_info()  {
   # [ANCHOR:LOG_INFO]
   echo -e "${GREEN}[INFO]${NC} $*"
@@ -1313,15 +1330,40 @@ print_summary() {
   echo
 }
 
-install_lomp_flow() {
-  # [ANCHOR:INSTALL_FLOW]
-  local opt lomp_tier
+install_frontend_only_flow() {
+  # [ANCHOR:INSTALL_FLOW_LITE]
+  local opt
 
-  lomp_tier="$LOMP_DEFAULT_TIER"
-  if ! is_valid_tier "$lomp_tier"; then
-    log_error "内部档位标识无效，无法继续安装。"
-    exit 1
+  require_root
+  check_os
+  prompt_site_info
+
+  install_packages
+  setup_vhost_config
+  download_wordpress
+  fix_permissions
+  env_self_check
+  configure_ssl
+
+  if [ "${POST_SUMMARY_SHOWN:-0}" -eq 0 ]; then
+    show_post_install_summary "${SITE_DOMAIN}"
   fi
+
+  echo "-------------------------------------"
+  echo "  1) 返回主菜单"
+  echo "  0) 退出脚本"
+  echo "-------------------------------------"
+  read -rp "请输入选项 [0-1]: " opt
+  case "$opt" in
+    1) show_main_menu ;;
+    0) log_info "已退出脚本。"; exit 0 ;;
+    *) log_warn "输入无效，默认退出脚本。"; exit 0 ;;
+  esac
+}
+
+install_standard_flow() {
+  # [ANCHOR:INSTALL_FLOW_STANDARD]
+  local opt
 
   require_root
   check_os
@@ -1376,6 +1418,28 @@ install_lomp_flow() {
     1) show_main_menu ;;
     0) log_info "已退出脚本。"; exit 0 ;;
     *) log_warn "输入无效，默认退出脚本。"; exit 0 ;;
+  esac
+}
+
+install_hub_flow() {
+  # [ANCHOR:INSTALL_FLOW_HUB]
+  log_step "Hub 档安装流程（占位）"
+  log_warn "Hub 档位安装流程尚未实现，敬请期待。"
+}
+
+install_lomp_flow() {
+  # [ANCHOR:INSTALL_FLOW]
+  local selected_tier
+
+  selected_tier="$(get_recommended_lomp_tier)"
+
+  case "$selected_tier" in
+    "$TIER_LITE")
+      install_frontend_only_flow
+      ;;
+    *)
+      install_standard_flow
+      ;;
   esac
 }
 
