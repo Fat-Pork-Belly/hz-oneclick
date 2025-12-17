@@ -209,6 +209,13 @@ assert_contains "$details_output" "Group: SYSTEM/RESOURCE"
 assert_contains "$details_output" "KEY:DISK_USAGE_ROOT"
 assert_contains "$details_output" "KEY:LOAD1_PER_CORE"
 
+echo "[baseline-smoke] wrapper quick verdict check"
+if [ -x "${REPO_ROOT}/modules/diagnostics/baseline-dns-ip.sh" ]; then
+  wrapper_output="$(BASELINE_TEST_MODE=1 HZ_BASELINE_LANG=en bash "${REPO_ROOT}/modules/diagnostics/baseline-dns-ip.sh" "example.com" "en")"
+  assert_contains "$wrapper_output" "VERDICT:"
+  assert_contains "$wrapper_output" "KEY:"
+fi
+
 
 echo "[baseline-smoke] secrets leak guard"
 TEST_DB_PASS="SuperSecret123!DoNotLeak"

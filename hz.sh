@@ -9,6 +9,129 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 # 全局语言变量：en / zh
 HZ_LANG=""
 
+baseline_menu_normalize_lang() {
+  local lang
+  lang="${1:-zh}"
+  if [[ "${lang,,}" == en* ]]; then
+    echo "en"
+  else
+    echo "zh"
+  fi
+}
+
+baseline_diagnostics_menu() {
+  local diag_domain diag_lang choice lang_input
+
+  diag_lang="$(baseline_menu_normalize_lang "$HZ_LANG")"
+  while true; do
+    clear
+
+    if [ "$diag_lang" = "en" ]; then
+      echo "== Baseline Diagnostics =="
+      echo "Enter a domain to diagnose (optional, press Enter to skip):"
+    else
+      echo "== 基础诊断（Baseline Diagnostics）=="
+      echo "请输入要诊断的域名（可留空跳过域名相关检查）："
+    fi
+    read -r diag_domain
+
+    if [ "$diag_lang" = "en" ]; then
+      echo "Select language for diagnostics [en/zh] (default: $diag_lang):"
+    else
+      echo "选择诊断语言 [en/zh]（默认：$diag_lang）："
+    fi
+    read -r lang_input
+    diag_lang="$(baseline_menu_normalize_lang "${lang_input:-$diag_lang}")"
+
+    while true; do
+      clear
+      if [ "$diag_lang" = "en" ]; then
+        cyan "Baseline Diagnostics"
+        echo "Domain: ${diag_domain:-<none>}"
+        echo "Language: ${diag_lang}"
+        echo "  1) Run Quick Triage (521/HTTPS/TLS first)"
+        echo "  2) Run DNS/IP baseline group"
+        echo "  3) Run Origin/Firewall baseline group"
+        echo "  4) Run Proxy/CDN baseline group"
+        echo "  5) Run TLS/HTTPS baseline group"
+        echo "  6) Run LSWS/OLS baseline group"
+        echo "  7) Run WP/App baseline group"
+        echo "  8) Run Cache/Redis/OPcache baseline group"
+        echo "  9) Run System/Resource baseline group"
+        echo "  d) Update domain/language"
+        echo "  0) Back"
+        read -rp "Please enter a choice: " choice
+      else
+        cyan "基础诊断（Baseline Diagnostics）"
+        echo "域名：${diag_domain:-<无>}"
+        echo "语言：${diag_lang}"
+        echo "  1) Quick Triage（优先排查 521/HTTPS/TLS）"
+        echo "  2) DNS/IP 基线检查"
+        echo "  3) 源站/防火墙 基线检查"
+        echo "  4) 代理/CDN 基线检查"
+        echo "  5) TLS/HTTPS 基线检查"
+        echo "  6) LSWS/OLS 基线检查"
+        echo "  7) WP/App 基线检查"
+        echo "  8) 缓存/Redis/OPcache 基线检查"
+        echo "  9) 系统/资源 基线检查"
+        echo "  d) 更新域名/语言"
+        echo "  0) 返回"
+        read -rp "请输入选项: " choice
+      fi
+
+      case "$choice" in
+        1)
+          echo "Running Baseline Quick Triage (read-only checks)..."
+          HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG="$diag_lang" HZ_TRIAGE_DOMAIN="$diag_domain" bash ./modules/diagnostics/quick-triage.sh
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        2)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-dns-ip.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        3)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-origin-firewall.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        4)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-proxy-cdn.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        5)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-tls-https.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        6)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-lsws-ols.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        7)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-wp-app.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        8)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-cache.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        9)
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-system.sh "$diag_domain" "$diag_lang"
+          read -rp "Done. Press Enter to return..." _
+          ;;
+        d|D)
+          break
+          ;;
+        0)
+          return
+          ;;
+        *)
+          echo "Invalid choice, please try again."
+          read -rp "Press Enter to continue..." _
+          ;;
+      esac
+    done
+  done
+}
+
 choose_lang() {
   while true; do
     clear
@@ -64,7 +187,7 @@ main_menu() {
       cyan  "  9) wp-cron helper (system cron for WordPress)"
       green  " 10) rkhunter (rootkit / trojan scanner)"
       cyan  "  11) rkhunter (daily check / optional mail alert)"
-      green " 12) Quick Triage (521/HTTPS/TLS) - export report"
+      green " 12) Baseline Diagnostics"
       yellow "  0) Exit"
       green "  r) Return to language selection / 返回语言选择 "
       echo
@@ -119,9 +242,7 @@ main_menu() {
           bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/security/setup-rkhunter-cron-en.sh)
           ;;
         12)
-          echo "Running Baseline Quick Triage (read-only checks)..."
-          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/diagnostics/quick-triage.sh)
-          read -rp "Done. Press Enter to return to menu..." _
+          baseline_diagnostics_menu
           ;;
         0)
           echo "Bye~"
@@ -154,7 +275,7 @@ main_menu() {
       cyan  "  9) wp-cron 定时任务向导"
       green "  10) rkhunter（系统后门 / 木马检测）"
       cyan  "  11) rkhunter 定时扫描(报错邮件通知 /日志维护）"
-      green "  12) Quick Triage（优先排查 521/HTTPS/TLS）- 导出报告"
+      green "  12) 基础诊断（Baseline Diagnostics）"
       cyan  "  13) ols-wp（ DB / redis 配置）"
       yellow "  0) 退出"
       yellow "  r) 返回语言选择 / Return to language selection"
@@ -210,9 +331,7 @@ main_menu() {
           bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/security/setup-rkhunter-cron.sh)
           ;;
         12)
-          echo "将运行 Baseline Quick Triage（只读排查，自动生成报告）..."
-          bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/diagnostics/quick-triage.sh)
-          read -rp "完成。按回车返回菜单..." _
+          baseline_diagnostics_menu
           ;;
         13)
           echo "将安装OLS+WP （ DB/Redis ）..."

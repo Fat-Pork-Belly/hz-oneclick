@@ -9,12 +9,24 @@ for f in "${files[@]}"; do
   bash -n "$f"
 done
 
+echo "[smoke] bash -n syntax check (modules/diagnostics)"
+if [ -d "./modules/diagnostics" ]; then
+  mapfile -d '' diag_files < <(find ./modules/diagnostics -type f -name '*.sh' -print0)
+  for f in "${diag_files[@]}"; do
+    bash -n "$f"
+  done
+fi
+
 if command -v shellcheck >/dev/null 2>&1; then
   echo "[smoke] shellcheck structural pass (non-blocking)"
   shellcheck -x "${files[@]}" || true
 else
   echo "[smoke] shellcheck not available; skipping static lint"
 fi
+
+echo "[smoke] baseline diagnostics menu entries"
+grep -q "Baseline Diagnostics" hz.sh
+grep -q "基础诊断" hz.sh
 
 echo "[smoke] baseline_dns diagnostics smoke"
 if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_dns.sh" ]; then
