@@ -114,7 +114,7 @@ baseline__print_group_counts() {
   done
 
   for group in "${group_order[@]}"; do
-    printf "- Group: %s (PASS: %s WARN: %s FAIL: %s)\n" \
+    printf -- "- Group: %s (PASS: %s WARN: %s FAIL: %s)\n" \
       "$group" \
       "${group_pass["$group"]:-0}" \
       "${group_warn["$group"]:-0}" \
