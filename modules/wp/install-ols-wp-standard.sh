@@ -11,6 +11,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMMON_LIB="${REPO_ROOT}/lib/common.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
+BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
 
 cd /
 
@@ -49,6 +50,11 @@ fi
 if [ -r "$BASELINE_LIB" ]; then
   # shellcheck source=/dev/null
   . "$BASELINE_LIB"
+fi
+
+if [ -r "$BASELINE_HTTPS_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$BASELINE_HTTPS_LIB"
 fi
 
 : "${TIER_LITE:=lite}"
@@ -217,10 +223,87 @@ EOF
 }
 
 # [ANCHOR:CH20_BASELINE_ENTRY]
+baseline_print_keywords() {
+  local total idx keyword status key_items key_item
+  declare -A seen=()
+
+  if ! declare -p BASELINE_RESULTS_STATUS >/dev/null 2>&1; then
+    baseline_init
+  fi
+
+  echo "=== Baseline Diagnostics KEY ==="
+  total=${#BASELINE_RESULTS_STATUS[@]}
+
+  for ((idx=0; idx<total; idx++)); do
+    keyword="${BASELINE_RESULTS_KEYWORD[idx]}"
+    status="${BASELINE_RESULTS_STATUS[idx]}"
+
+    if [ -z "$keyword" ] || [ "$status" = "PASS" ]; then
+      continue
+    fi
+
+    # Support multiple keywords separated by spaces.
+    read -r -a key_items <<< "$keyword"
+    for key_item in "${key_items[@]}"; do
+      if [ -n "$key_item" ] && [ -z "${seen[$key_item]+x}" ]; then
+        seen["$key_item"]=1
+        echo "- $key_item"
+      fi
+    done
+  done
+
+  if [ ${#seen[@]} -eq 0 ]; then
+    echo "- (none)"
+  fi
+}
+
 run_lomp_baseline_diagnostics() {
+  local domain lang
+  lang="${LANG:-zh}"
+  if [[ "${lang,,}" == en* ]]; then
+    lang="en"
+  else
+    lang="zh"
+  fi
+
   baseline_init
 
-  # TODO: Step20-2/3/4 will add baseline diagnostics items.
+  domain="${SITE_DOMAIN:-}"
+  if [ -z "$domain" ]; then
+    if [ "$lang" = "en" ]; then
+      read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
+    else
+      read -rp "请输入要诊断的域名（例如: abc.yourdomain.com）: " domain
+    fi
+    domain="${domain//[[:space:]]/}"
+  fi
+
+  if [ -z "$domain" ]; then
+    if [ "$lang" = "en" ]; then
+      log_error "Domain is required to run baseline diagnostics."
+    else
+      log_error "未提供域名，无法执行诊断。"
+    fi
+    return
+  fi
+
+  if [ "$lang" = "en" ]; then
+    echo "=== Baseline Diagnostics ==="
+    echo "Target domain: ${domain}"
+  else
+    echo "=== 基线诊断（Baseline） ==="
+    echo "诊断域名: ${domain}"
+  fi
+
+  baseline_https_run "$domain" "$lang"
+
+  baseline_print_summary
+  baseline_print_details
+  baseline_print_keywords
+
+  echo
+  read -rp "按回车返回主菜单..." _
+  show_main_menu
 }
 
 detect_public_ip() {
@@ -507,11 +590,12 @@ show_main_menu() {
   echo "维护 / 清理："
   echo "  7) 清理本机 OLS / WordPress（危险操作，慎用）"
   echo "  8) 清理数据库 / Redis（需在 DB/Redis 所在机器执行）"
+  echo "  9) Baseline 诊断 / 验收"
   echo "  0) 退出脚本"
   echo
 
   local choice
-  read -rp "请输入选项 [0-8]: " choice
+  read -rp "请输入选项 [0-9]: " choice
   echo
 
   case "$choice" in
@@ -523,15 +607,16 @@ show_main_menu() {
     6) show_lnmp_placeholder "LNMP-Hub" ;;
     7) cleanup_lomp_menu ;;
     8) cleanup_db_redis_menu ;;
+    9) run_lomp_baseline_diagnostics ;;
     0)
       # [ANCHOR:EXIT]
       log_info "已退出脚本。"
       exit 0
       ;;
-    *)
-      log_warn "无效输入，请重新运行脚本并选择 0-8。"
-      exit 1
-      ;;
+      *)
+        log_warn "无效输入，请重新运行脚本并选择 0-9。"
+        exit 1
+        ;;
   esac
 }
 
