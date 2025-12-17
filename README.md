@@ -45,3 +45,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/m
 - 直接运行：`bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/diagnostics/quick-triage.sh)`（可选语言 en/zh），按提示输入要诊断的域名（示例：`abc.yourdomain.com`）。
 - 终端会输出 `VERDICT:` / `KEY:` / `REPORT:` 行，完整报告会写到 `/tmp/` 目录，文件名带时间戳和域名（示例：`/tmp/hz-baseline-triage-abc.yourdomain.com-20240101-120000.txt`）。
 - 报告内容已脱敏，反馈问题时优先提供 `KEY:` 行以及 `REPORT:` 路径或内容，方便他人复现和定位，无需粘贴整份日志。
+
+## Baseline Diagnostics 菜单入口
+
+- 运行 `hz.sh` 后，可在主菜单中选择「Baseline Diagnostics / 基础诊断」进入单独的诊断子菜单（先选择语言、可选输入域名）。
+- 子菜单提供一键 Quick Triage，也可以按组单独运行（DNS/IP、源站/防火墙、代理/CDN、TLS/HTTPS、LSWS/OLS、WP/App、缓存/Redis/OPcache、系统/资源）。
+- 示例命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/hz.sh -o hz.sh
+bash hz.sh
+```
+
+- 也可以直接拉取某个基线分组的封装脚本，例如只跑 DNS/IP 组：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/modules/diagnostics/baseline-dns-ip.sh) "example.com" en
+```
