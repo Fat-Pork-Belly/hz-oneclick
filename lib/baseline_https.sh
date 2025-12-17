@@ -25,29 +25,22 @@ baseline_check_listen_port() {
 
 baseline_check_url_status() {
   # Usage: baseline_check_url_status "<url>"
-  local url status exit_code
+  local url status exit_code status_hint
   url="$1"
-  BASELINE_LAST_CURL_EXIT_CODE=0
-
   status="$(curl -L -s -o /dev/null -w "%{http_code}" --max-time 12 --connect-timeout 8 "$url" 2>/dev/null)"
   exit_code=$?
-  BASELINE_LAST_CURL_EXIT_CODE="$exit_code"
 
   if [ "$exit_code" -eq 28 ]; then
-    echo "TIMEOUT"
-    return 0
-  fi
-
-  if [ "$exit_code" -ne 0 ]; then
-    echo "ERROR"
-    return 0
-  fi
-
-  if echo "$status" | grep -Eq '^[0-9]{3}$'; then
-    echo "$status"
+    status_hint="TIMEOUT"
+  elif [ "$exit_code" -ne 0 ]; then
+    status_hint="ERROR"
+  elif echo "$status" | grep -Eq '^[0-9]{3}$'; then
+    status_hint="$status"
   else
-    echo "ERROR"
+    status_hint="ERROR"
   fi
+
+  printf "%s %s" "$status_hint" "$exit_code"
 }
 
 baseline_https_run() {
@@ -64,9 +57,9 @@ baseline_https_run() {
   listen80="$(baseline_check_listen_port 80)"
   listen443="$(baseline_check_listen_port 443)"
 
-  http_status="$(baseline_check_url_status "http://${domain}/")"
-  https_status="$(baseline_check_url_status "https://${domain}/")"
-  local https_exit="$BASELINE_LAST_CURL_EXIT_CODE"
+  read -r http_status http_exit <<< "$(baseline_check_url_status "http://${domain}/")"
+  read -r https_status https_exit <<< "$(baseline_check_url_status "https://${domain}/")"
+  : "$http_exit"
 
   case "$listen80" in
     OK) listen80_state="PASS" ;;

@@ -49,4 +49,7 @@ else
   echo "[smoke] baseline_origin libraries not found; skipping baseline_origin smoke"
 fi
 
+echo "[smoke] baseline regression suite"
+bash tests/baseline_smoke.sh
+
 echo "[smoke] OK"
