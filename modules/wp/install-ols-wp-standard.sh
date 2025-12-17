@@ -13,6 +13,7 @@ COMMON_LIB="${REPO_ROOT}/lib/common.sh"
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
 BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
 BASELINE_DB_LIB="${REPO_ROOT}/lib/baseline_db.sh"
+BASELINE_DNS_LIB="${REPO_ROOT}/lib/baseline_dns.sh"
 
 cd /
 
@@ -61,6 +62,11 @@ fi
 if [ -r "$BASELINE_DB_LIB" ]; then
   # shellcheck source=/dev/null
   . "$BASELINE_DB_LIB"
+fi
+
+if [ -r "$BASELINE_DNS_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$BASELINE_DNS_LIB"
 fi
 
 : "${TIER_LITE:=lite}"
@@ -279,16 +285,18 @@ run_lomp_baseline_diagnostics() {
       echo "Select a group to diagnose:"
       echo "  1) HTTPS/521"
       echo "  2) DB"
+      echo "  3) DNS/IP"
       echo "  0) Return to main menu"
-      read -rp "Choose [0-2]: " choice
+      read -rp "Choose [0-3]: " choice
     else
       echo "=== 基线诊断（Baseline） ==="
       echo "仅做连通性诊断，不会修改外部配置，也不会保存密码。"
       echo "请选择要诊断的组："
       echo "  1) HTTPS/521"
       echo "  2) DB"
+      echo "  3) DNS/IP"
       echo "  0) 返回主菜单"
-      read -rp "请输入选项 [0-2]: " choice
+      read -rp "请输入选项 [0-3]: " choice
     fi
     echo
 
@@ -411,15 +419,52 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
+      3)
+        baseline_init
+        if [ "$lang" = "en" ]; then
+          read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
+        else
+          read -rp "请输入要诊断的域名（例如: abc.yourdomain.com）: " domain
+        fi
+        domain="${domain//[[:space:]]/}"
+
+        if [ -z "$domain" ]; then
+          if [ "$lang" = "en" ]; then
+            log_error "Domain is required to run baseline diagnostics."
+          else
+            log_error "未提供域名，无法执行诊断。"
+          fi
+          continue
+        fi
+
+        if [ "$lang" = "en" ]; then
+          echo "Target domain: ${domain}"
+        else
+          echo "诊断域名: ${domain}"
+        fi
+
+        baseline_dns_run "$domain" "$lang"
+
+        baseline_print_summary
+        baseline_print_details
+        baseline_print_keywords
+
+        echo
+        if [ "$lang" = "en" ]; then
+          read -rp "Press Enter to return to Baseline menu..." _
+        else
+          read -rp "按回车返回 Baseline 菜单..." _
+        fi
+        ;;
       0)
         show_main_menu
         return
         ;;
       *)
         if [ "$lang" = "en" ]; then
-          log_warn "Invalid input, please choose 0-2."
+          log_warn "Invalid input, please choose 0-3."
         else
-          log_warn "无效输入，请选择 0-2。"
+          log_warn "无效输入，请选择 0-3。"
         fi
         ;;
     esac
