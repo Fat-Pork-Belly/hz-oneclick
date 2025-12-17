@@ -39,3 +39,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/m
 - 推荐使用前缀命名 PR 标题（如 `feat/xxx`、`fix/xxx`、`chore/xxx`、`docs/xxx` 或 `refactor/xxx`）。
 - 合并前必须通过 CI 检查。
 - PR 描述需严格按照模板填写，并确保 Summary、Testing 等必填项完整。
+
+## Baseline Quick Triage
+
+- 在「Baseline Diagnostics」菜单中新增了「Quick Triage (521/HTTPS/TLS) / 一键快排查（521/HTTPS/TLS）」入口，可一步串联 DNS/IP、Origin、防火墙、Proxy/CDN、TLS/HTTPS、LSWS/OLS、WP/App、Cache/Redis、DB、System 等检查。
+- 运行时会要求输入要诊断的域名，并可选择语言（en/zh）。脚本会输出 `VERDICT`/`KEY`/`REPORT` 行，并将完整报告写入 `/tmp/hz-baseline-triage-<domain>-<YYYYmmdd-HHMMSS>.txt`（例如：`/tmp/hz-baseline-triage-abc.yourdomain.com-20240101-120000.txt`）。
+- 需要求助时，请提供 `KEY:` 行和 `REPORT:` 路径，方便他人复现和定位，无需粘贴整份日志。

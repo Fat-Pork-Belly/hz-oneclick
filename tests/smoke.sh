@@ -163,6 +163,35 @@ else
   echo "[smoke] baseline_sys libraries not found; skipping baseline_sys smoke"
 fi
 
+echo "[smoke] baseline_triage quick run"
+if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
+  # shellcheck source=/dev/null
+  . ./lib/baseline.sh
+  # shellcheck source=/dev/null
+  . ./lib/baseline_triage.sh
+  for lib in ./lib/baseline_https.sh ./lib/baseline_tls.sh ./lib/baseline_db.sh \
+    ./lib/baseline_dns.sh ./lib/baseline_origin.sh ./lib/baseline_proxy.sh \
+    ./lib/baseline_wp.sh ./lib/baseline_lsws.sh ./lib/baseline_cache.sh ./lib/baseline_sys.sh; do
+    if [ -r "$lib" ]; then
+      # shellcheck source=/dev/null
+      . "$lib"
+    fi
+  done
+
+  triage_output="$( ( BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" ) )"
+  echo "$triage_output" | grep -q "^VERDICT:"
+  echo "$triage_output" | grep -q "^KEY:"
+  report_path="$(echo "$triage_output" | awk '/^REPORT:/ {print $2}')"
+  if [ -z "$report_path" ] || [ ! -f "$report_path" ]; then
+    echo "[smoke] triage report not generated" >&2
+    exit 1
+  fi
+  grep -q "HZ Quick Triage Report" "$report_path"
+  grep -q "Baseline Diagnostics Summary" "$report_path"
+else
+  echo "[smoke] baseline_triage libraries not found; skipping triage smoke"
+fi
+
 echo "[smoke] baseline regression suite"
 bash tests/baseline_smoke.sh
 

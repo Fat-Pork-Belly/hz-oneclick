@@ -21,6 +21,7 @@ BASELINE_WP_LIB="${REPO_ROOT}/lib/baseline_wp.sh"
 BASELINE_LSWS_LIB="${REPO_ROOT}/lib/baseline_lsws.sh"
 BASELINE_CACHE_LIB="${REPO_ROOT}/lib/baseline_cache.sh"
 BASELINE_SYS_LIB="${REPO_ROOT}/lib/baseline_sys.sh"
+BASELINE_TRIAGE_LIB="${REPO_ROOT}/lib/baseline_triage.sh"
 
 cd /
 
@@ -107,6 +108,10 @@ fi
 if [ -r "$BASELINE_SYS_LIB" ]; then
   # shellcheck source=/dev/null
   . "$BASELINE_SYS_LIB"
+fi
+if [ -r "$BASELINE_TRIAGE_LIB" ]; then
+  # shellcheck source=/dev/null
+  . "$BASELINE_TRIAGE_LIB"
 fi
 
 : "${TIER_LITE:=lite}"
@@ -323,39 +328,86 @@ run_lomp_baseline_diagnostics() {
       echo "=== Baseline Diagnostics ==="
       echo "Advisory checks only: no external configs will be modified and passwords are not stored."
       echo "Select a group to diagnose:"
-      echo "  1) HTTPS/521"
-      echo "  2) DB"
-      echo "  3) DNS/IP"
-      echo "  4) Origin/Firewall (ports/service/UFW)"
-      echo "  5) Step20-7 Proxy/CDN (521/TLS)"
-      echo "  6) Step20-8 TLS/CERT (SNI/SAN/chain/expiry)"
-      echo "  7) Step20-9 WP/App (runtime + HTTP)"
-      echo "  8) Step20-10 LSWS/OLS (service/port/config/logs)"
-      echo "  9) Step20-11 Cache/Redis/OPcache"
-      echo " 10) Step20-12 System/Resource (CPU/RAM/Disk/Swap/Logs)"
+      echo "  1) Quick Triage (521/HTTPS/TLS)"
+      echo "  2) HTTPS/521"
+      echo "  3) DB"
+      echo "  4) DNS/IP"
+      echo "  5) Origin/Firewall (ports/service/UFW)"
+      echo "  6) Step20-7 Proxy/CDN (521/TLS)"
+      echo "  7) Step20-8 TLS/CERT (SNI/SAN/chain/expiry)"
+      echo "  8) Step20-9 WP/App (runtime + HTTP)"
+      echo "  9) Step20-10 LSWS/OLS (service/port/config/logs)"
+      echo " 10) Step20-11 Cache/Redis/OPcache"
+      echo " 11) Step20-12 System/Resource (CPU/RAM/Disk/Swap/Logs)"
       echo "  0) Return to main menu"
-      read -rp "Choose [0-10]: " choice
+      read -rp "Choose [0-11]: " choice
     else
       echo "=== 基线诊断（Baseline） ==="
       echo "仅做连通性诊断，不会修改外部配置，也不会保存密码。"
       echo "请选择要诊断的组："
-      echo "  1) HTTPS/521"
-      echo "  2) DB"
-      echo "  3) DNS/IP"
-      echo "  4) Origin/Firewall（端口/服务/UFW）"
-      echo "  5) Step20-7 反代/CDN（521/TLS）"
-      echo "  6) Step20-8 TLS/证书（SNI/SAN/链/到期）"
-      echo "  7) Step20-9 WP/App（运行态 + HTTP）"
-      echo "  8) Step20-10 LSWS/OLS（服务/端口/配置/日志）"
-      echo "  9) Step20-11 Cache/Redis/OPcache"
-      echo " 10) Step20-12 System/Resource（CPU/内存/磁盘/Swap/日志）"
+      echo "  1) 一键快排查（521/HTTPS/TLS）"
+      echo "  2) HTTPS/521"
+      echo "  3) DB"
+      echo "  4) DNS/IP"
+      echo "  5) Origin/Firewall（端口/服务/UFW）"
+      echo "  6) Step20-7 反代/CDN（521/TLS）"
+      echo "  7) Step20-8 TLS/证书（SNI/SAN/链/到期）"
+      echo "  8) Step20-9 WP/App（运行态 + HTTP）"
+      echo "  9) Step20-10 LSWS/OLS（服务/端口/配置/日志）"
+      echo " 10) Step20-11 Cache/Redis/OPcache"
+      echo " 11) Step20-12 System/Resource（CPU/内存/磁盘/Swap/日志）"
       echo "  0) 返回主菜单"
-      read -rp "请输入选项 [0-10]: " choice
+      read -rp "请输入选项 [0-11]: " choice
     fi
     echo
 
     case "$choice" in
       1)
+        baseline_init
+        domain="${SITE_DOMAIN:-}"
+        if [ -z "$domain" ]; then
+          if [ "$lang" = "en" ]; then
+            read -rp "Enter the domain to triage (e.g., abc.yourdomain.com): " domain
+          else
+            read -rp "请输入要排查的域名（例如: abc.yourdomain.com）: " domain
+          fi
+          domain="${domain//[[:space:]]/}"
+        fi
+
+        if [ "$lang" = "en" ]; then
+          read -rp "Language [en/zh] (default: ${lang}): " lang_choice
+        else
+          read -rp "选择语言 [en/zh]（默认: ${lang}）: " lang_choice
+        fi
+        lang_choice="${lang_choice//[[:space:]]/}"
+        lang_choice="${lang_choice,,}"
+        if [[ "$lang_choice" =~ ^(en|zh)$ ]]; then
+          lang="$lang_choice"
+        fi
+
+        if [ -z "$domain" ]; then
+          if [ "$lang" = "en" ]; then
+            log_error "Domain is required to run Quick Triage."
+          else
+            log_error "未提供域名，无法执行一键排查。"
+          fi
+          continue
+        fi
+
+        if declare -F baseline_triage_run >/dev/null 2>&1; then
+          baseline_triage_run "$domain" "$lang"
+        else
+          echo "baseline_triage_run not available"
+        fi
+
+        echo
+        if [ "$lang" = "en" ]; then
+          read -rp "Press Enter to return to Baseline menu..." _
+        else
+          read -rp "按回车返回 Baseline 菜单..." _
+        fi
+        ;;
+      2)
         baseline_init
         domain="${SITE_DOMAIN:-}"
         if [ -z "$domain" ]; then
@@ -385,17 +437,17 @@ run_lomp_baseline_diagnostics() {
         baseline_https_run "$domain" "$lang"
 
         baseline_print_summary
-      baseline_print_details
-      baseline_print_keywords
+        baseline_print_details
+        baseline_print_keywords
 
-      echo
-      if [ "$lang" = "en" ]; then
+        echo
+        if [ "$lang" = "en" ]; then
           read -rp "Press Enter to return to Baseline menu..." _
         else
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      2)
+      3)
         baseline_init
         if [ "$lang" = "en" ]; then
           read -rp "DB host [127.0.0.1]: " db_host
@@ -473,7 +525,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      3)
+      4)
         baseline_init
         if [ "$lang" = "en" ]; then
           read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
@@ -510,7 +562,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      4)
+      5)
         baseline_init
         domain="${SITE_DOMAIN:-}"
         if [ "$lang" = "en" ]; then
@@ -544,7 +596,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      5)
+      6)
         baseline_init
         if [ "$lang" = "en" ]; then
           read -rp "Enter the domain to diagnose (e.g., abc.yourdomain.com): " domain
@@ -581,7 +633,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      6)
+      7)
         baseline_init
         domain="${SITE_DOMAIN:-}"
         if [ -z "$domain" ]; then
@@ -621,7 +673,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      7)
+      8)
         baseline_init
         domain="${SITE_DOMAIN:-}"
         if [ -z "$domain" ]; then
@@ -672,7 +724,7 @@ run_lomp_baseline_diagnostics() {
         read -rp "按回车返回 Baseline 菜单..." _
       fi
         ;;
-      8)
+      9)
         baseline_init
         if [ "$lang" = "en" ]; then
           read -rp "Domain to probe (optional, leave blank to skip): " domain
@@ -698,7 +750,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      9)
+      10)
         baseline_init
         wp_path=""
         redis_pass=""
@@ -750,7 +802,7 @@ run_lomp_baseline_diagnostics() {
           read -rp "按回车返回 Baseline 菜单..." _
         fi
         ;;
-      10)
+      11)
         baseline_init
         if declare -F baseline_sys_run >/dev/null 2>&1; then
           baseline_sys_run "$lang"
@@ -775,9 +827,9 @@ run_lomp_baseline_diagnostics() {
         ;;
       *)
         if [ "$lang" = "en" ]; then
-          log_warn "Invalid input, please choose 0-10."
+          log_warn "Invalid input, please choose 0-11."
         else
-          log_warn "无效输入，请选择 0-10。"
+          log_warn "无效输入，请选择 0-11。"
         fi
         ;;
     esac
