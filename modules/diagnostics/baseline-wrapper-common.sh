@@ -171,11 +171,31 @@ baseline_wrapper_status_merge() {
   fi
 }
 
+baseline_wrapper_group_key() {
+  local group_name normalized
+  group_name="$1"
+  case "$group_name" in
+    "DNS/IP") normalized="dns-ip" ;;
+    "ORIGIN/FW") normalized="origin-firewall" ;;
+    "Proxy/CDN") normalized="proxy-cdn" ;;
+    "TLS/HTTPS") normalized="tls-https" ;;
+    "LSWS/OLS") normalized="lsws-ols" ;;
+    "WP/APP") normalized="wp-app" ;;
+    "CACHE/REDIS") normalized="cache-redis" ;;
+    "SYSTEM/RESOURCE") normalized="system-resource" ;;
+    *)
+      normalized="$(printf '%s' "$group_name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^A-Za-z0-9]+/-/g; s/^-+//; s/-+$//')"
+      ;;
+  esac
+  echo "$normalized"
+}
+
 baseline_wrapper_json_array_from_lines() {
   local data first=1 line escaped
   data="$1"
   while IFS= read -r line; do
     [ -z "$line" ] && continue
+    line="$(baseline_wrapper_sanitize_json_text "$line")"
     escaped="$(baseline_json_escape "$line")"
     if [ $first -eq 0 ]; then
       printf ','
@@ -199,6 +219,94 @@ baseline_wrapper_first_reason() {
     fi
   done
   echo ""
+}
+
+baseline_wrapper_collect_keywords_joined() {
+  local keys joined
+  keys="$(baseline_wrapper_collect_keywords)"
+  joined="$(printf '%s' "$keys" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+  echo "$joined"
+}
+
+baseline_wrapper_sanitize_json_text() {
+  local text
+  text="$1"
+  text="$(printf "%s" "$text" | baseline_sanitize_text)"
+  if declare -f baseline_vendor_scrub_text >/dev/null 2>&1; then
+    text="$(printf "%s" "$text" | baseline_vendor_scrub_text)"
+  fi
+  printf "%s" "$text"
+}
+
+baseline_wrapper_write_json_report() {
+  local payload path
+  payload="$1"
+  path="$2"
+  umask 077
+  printf "%s\n" "$payload" > "$path"
+  chmod 600 "$path" 2>/dev/null || true
+}
+
+baseline_wrapper_build_json_payload() {
+  local group domain lang verdict report_path report_json_path
+  group="$1"
+  domain="$2"
+  lang="$3"
+  verdict="$4"
+  report_path="$5"
+  report_json_path="$6"
+
+  local total idx keyword evidence suggestions evidence_fmt suggestions_fmt
+  local -a evidence_lines=() suggestion_lines=()
+  local -A seen_ev=() seen_sug=()
+
+  total=${#BASELINE_RESULTS_STATUS[@]}
+  for ((idx=0; idx<total; idx++)); do
+    evidence="${BASELINE_RESULTS_EVIDENCE[idx]}"
+    suggestions="${BASELINE_RESULTS_SUGGESTIONS[idx]}"
+
+    evidence_fmt=${evidence//\\n/$'\n'}
+    while IFS= read -r evidence; do
+      [ -z "$evidence" ] && continue
+      evidence="$(baseline_wrapper_sanitize_json_text "$evidence")"
+      if [ -z "${seen_ev[$evidence]+x}" ]; then
+        seen_ev[$evidence]=1
+        evidence_lines+=("$evidence")
+      fi
+    done <<< "$evidence_fmt"
+
+    suggestions_fmt=${suggestions//\\n/$'\n'}
+    while IFS= read -r suggestions; do
+      [ -z "$suggestions" ] && continue
+      suggestions="$(baseline_wrapper_sanitize_json_text "$suggestions")"
+      if [ -z "${seen_sug[$suggestions]+x}" ]; then
+        seen_sug[$suggestions]=1
+        suggestion_lines+=("$suggestions")
+      fi
+    done <<< "$suggestions_fmt"
+  done
+
+  local key_joined evidence_json suggestions_json group_key domain_safe lang_safe key_safe report_safe report_json_safe
+  key_joined="$(baseline_wrapper_collect_keywords_joined)"
+  evidence_json="$(baseline_wrapper_json_array_from_lines "$(printf '%s\n' "${evidence_lines[@]}")")"
+  suggestions_json="$(baseline_wrapper_json_array_from_lines "$(printf '%s\n' "${suggestion_lines[@]}")")"
+  group_key="$(baseline_wrapper_group_key "$group")"
+
+  domain_safe="$(baseline_wrapper_sanitize_json_text "$domain")"
+  lang_safe="$(baseline_wrapper_sanitize_json_text "$lang")"
+  key_safe="$(baseline_wrapper_sanitize_json_text "$key_joined")"
+  report_safe="$(baseline_wrapper_sanitize_json_text "$report_path")"
+  report_json_safe="$(baseline_wrapper_sanitize_json_text "$report_json_path")"
+
+  printf '{"tool":"hz-oneclick","mode":"baseline-diagnostics","group":"%s","domain":"%s","lang":"%s","verdict":"%s","key":"%s","report":"%s","report_json":"%s","evidence":[%s],"suggestions":[%s]}' \
+    "$(baseline_json_escape "$group_key")" \
+    "$(baseline_json_escape "$domain_safe")" \
+    "$(baseline_json_escape "$lang_safe")" \
+    "$(baseline_json_escape "$verdict")" \
+    "$(baseline_json_escape "$key_safe")" \
+    "$(baseline_json_escape "$report_safe")" \
+    "$(baseline_json_escape "$report_json_safe")" \
+    "$evidence_json" "$suggestions_json"
 }
 
 baseline_wrapper_write_report() {
@@ -306,62 +414,11 @@ baseline_wrapper_finalize() {
   report_path="$(baseline_wrapper_write_report "$group" "$domain" "$lang" "$summary_output" "$details_output" "$key_line")"
 
   if [ "$format" = "json" ]; then
-    local total idx status keyword evidence suggestions evidence_fmt suggestions_fmt
-    local key_line_json evidence_json suggestions_json
-    local -A seen_key=() seen_ev=() seen_sug=()
-    local -a key_items=() evidence_lines=() suggestion_lines=()
-    local group_status="PASS"
-
-    total=${#BASELINE_RESULTS_STATUS[@]}
-    for ((idx=0; idx<total; idx++)); do
-      if [ "${BASELINE_RESULTS_GROUP[idx]}" != "$group" ]; then
-        continue
-      fi
-
-      status="${BASELINE_RESULTS_STATUS[idx]}"
-      keyword="${BASELINE_RESULTS_KEYWORD[idx]}"
-      evidence="${BASELINE_RESULTS_EVIDENCE[idx]}"
-      suggestions="${BASELINE_RESULTS_SUGGESTIONS[idx]}"
-
-      group_status="$(baseline_wrapper_status_merge "$group_status" "$status")"
-
-      read -r -a key_split <<< "$keyword"
-      for keyword in "${key_split[@]}"; do
-        [ -z "$keyword" ] && continue
-        if [ -z "${seen_key[$keyword]+x}" ]; then
-          seen_key[$keyword]=1
-          key_items+=("$keyword")
-        fi
-      done
-
-      evidence_fmt=${evidence//\\n/$'\n'}
-      while IFS= read -r evidence; do
-        [ -z "$evidence" ] && continue
-        evidence="$(printf "%s" "$evidence" | baseline_sanitize_text)"
-        if [ -z "${seen_ev[$evidence]+x}" ]; then
-          seen_ev[$evidence]=1
-          evidence_lines+=("$evidence")
-        fi
-      done <<< "$evidence_fmt"
-
-      suggestions_fmt=${suggestions//\\n/$'\n'}
-      while IFS= read -r suggestions; do
-        [ -z "$suggestions" ] && continue
-        suggestions="$(printf "%s" "$suggestions" | baseline_sanitize_text)"
-        if [ -z "${seen_sug[$suggestions]+x}" ]; then
-          seen_sug[$suggestions]=1
-          suggestion_lines+=("$suggestions")
-        fi
-      done <<< "$suggestions_fmt"
-    done
-
-    key_line_json="$(baseline_wrapper_json_array_from_lines "$(printf '%s\n' "${key_items[@]}")")"
-    evidence_json="$(baseline_wrapper_json_array_from_lines "$(printf '%s\n' "${evidence_lines[@]}")")"
-    suggestions_json="$(baseline_wrapper_json_array_from_lines "$(printf '%s\n' "${suggestion_lines[@]}")")"
-
-    printf '{"group": "%s", "status": "%s", "key_items": [%s], "evidence": [%s], "suggestions": [%s]}' \
-      "$group" "$group_status" "$key_line_json" "$evidence_json" "$suggestions_json"
-    echo
+    local json_payload report_json_path
+    report_json_path="${report_path%.txt}.json"
+    json_payload="$(baseline_wrapper_build_json_payload "$group" "$domain" "$lang" "$overall" "$report_path" "$report_json_path")"
+    baseline_wrapper_write_json_report "$json_payload" "$report_json_path"
+    printf '%s\n' "$json_payload"
     return
   fi
 

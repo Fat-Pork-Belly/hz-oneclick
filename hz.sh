@@ -8,6 +8,20 @@ yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 
 # 全局语言变量：en / zh
 HZ_LANG=""
+HZ_BASELINE_FORMAT="${HZ_BASELINE_FORMAT:-text}"
+
+baseline_menu_normalize_format() {
+  local format
+  format="${1:-text}"
+  case "${format,,}" in
+    json)
+      echo "json"
+      ;;
+    *)
+      echo "text"
+      ;;
+  esac
+}
 
 baseline_menu_normalize_lang() {
   local lang
@@ -19,10 +33,33 @@ baseline_menu_normalize_lang() {
   fi
 }
 
+parse_global_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --format)
+        HZ_BASELINE_FORMAT="$(baseline_menu_normalize_format "${2:-$HZ_BASELINE_FORMAT}")"
+        shift 2
+        ;;
+      --format=*)
+        HZ_BASELINE_FORMAT="$(baseline_menu_normalize_format "${1#--format=}")"
+        shift
+        ;;
+      --help|-h)
+        echo "Usage: $0 [--format text|json]"
+        exit 0
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+}
+
 baseline_diagnostics_menu() {
-  local diag_domain diag_lang choice lang_input
+  local diag_domain diag_lang choice lang_input diag_format format_input
 
   diag_lang="$(baseline_menu_normalize_lang "$HZ_LANG")"
+  diag_format="$(baseline_menu_normalize_format "$HZ_BASELINE_FORMAT")"
   while true; do
     clear
 
@@ -43,12 +80,21 @@ baseline_diagnostics_menu() {
     read -r lang_input
     diag_lang="$(baseline_menu_normalize_lang "${lang_input:-$diag_lang}")"
 
+    if [ "$diag_lang" = "en" ]; then
+      echo "Select output format [text/json] (default: $diag_format):"
+    else
+      echo "选择输出格式 [text/json]（默认：$diag_format）："
+    fi
+    read -r format_input
+    diag_format="$(baseline_menu_normalize_format "${format_input:-$diag_format}")"
+
     while true; do
       clear
       if [ "$diag_lang" = "en" ]; then
         cyan "Baseline Diagnostics"
         echo "Domain: ${diag_domain:-<none>}"
         echo "Language: ${diag_lang}"
+        echo "Format: ${diag_format}"
         echo "  1) Run Quick Triage (521/HTTPS/TLS first)"
         echo "  2) Run DNS/IP baseline group"
         echo "  3) Run Origin/Firewall baseline group"
@@ -65,6 +111,7 @@ baseline_diagnostics_menu() {
         cyan "基础诊断（Baseline Diagnostics）"
         echo "域名：${diag_domain:-<无>}"
         echo "语言：${diag_lang}"
+        echo "输出格式：${diag_format}"
         echo "  1) Quick Triage（优先排查 521/HTTPS/TLS）"
         echo "  2) DNS/IP 基线检查"
         echo "  3) 源站/防火墙 基线检查"
@@ -82,39 +129,39 @@ baseline_diagnostics_menu() {
       case "$choice" in
         1)
           echo "Running Baseline Quick Triage (read-only checks)..."
-          HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG="$diag_lang" HZ_TRIAGE_DOMAIN="$diag_domain" bash ./modules/diagnostics/quick-triage.sh
+          HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG="$diag_lang" HZ_TRIAGE_DOMAIN="$diag_domain" HZ_TRIAGE_FORMAT="$diag_format" bash ./modules/diagnostics/quick-triage.sh --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         2)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-dns-ip.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-dns-ip.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         3)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-origin-firewall.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-origin-firewall.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         4)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-proxy-cdn.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-proxy-cdn.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         5)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-tls-https.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-tls-https.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         6)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-lsws-ols.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-lsws-ols.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         7)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-wp-app.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-wp-app.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         8)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-cache.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-cache.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         9)
-          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" bash ./modules/diagnostics/baseline-system.sh "$diag_domain" "$diag_lang"
+          HZ_BASELINE_LANG="$diag_lang" HZ_BASELINE_DOMAIN="$diag_domain" HZ_BASELINE_FORMAT="$diag_format" bash ./modules/diagnostics/baseline-system.sh "$diag_domain" "$diag_lang" --format "$diag_format"
           read -rp "Done. Press Enter to return..." _
           ;;
         d|D)
@@ -355,5 +402,6 @@ main_menu() {
 }
 
 # 程序入口
+parse_global_args "$@"
 choose_lang
 main_menu

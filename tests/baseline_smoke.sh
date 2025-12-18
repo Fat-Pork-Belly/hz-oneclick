@@ -216,6 +216,73 @@ if [ -x "${REPO_ROOT}/modules/diagnostics/baseline-dns-ip.sh" ]; then
   assert_contains "$wrapper_output" "KEY:"
 fi
 
+echo "[baseline-smoke] wrapper json output"
+validate_wrapper_json() {
+  local json_output expected_group regex_pattern
+  json_output="$1"
+  expected_group="$2"
+  regex_pattern="$3"
+
+  echo "$json_output" | python3 -m json.tool >/dev/null
+
+  JSON_DATA="$json_output" python3 - "$expected_group" "$regex_pattern" <<'PY'
+import json
+import os
+import re
+import sys
+
+data = json.loads(os.environ.get("JSON_DATA", "{}"))
+expected = sys.argv[1]
+regex = sys.argv[2]
+
+for required in ("group", "verdict", "key"):
+    if required not in data:
+        print(f"missing field: {required}", file=sys.stderr)
+        sys.exit(1)
+
+for fixed_key, expected_val in ("tool", "hz-oneclick"), ("mode", "baseline-diagnostics"):
+    if data.get(fixed_key) != expected_val:
+        print(f"unexpected {fixed_key}: {data.get(fixed_key)}", file=sys.stderr)
+        sys.exit(1)
+
+if expected and data.get("group") != expected:
+    print(f"group mismatch: {data.get('group')} != {expected}", file=sys.stderr)
+    sys.exit(1)
+
+for list_field in ("evidence", "suggestions"):
+    if list_field not in data or not isinstance(data[list_field], list):
+        print(f"missing list field: {list_field}", file=sys.stderr)
+        sys.exit(1)
+
+for path_field in ("report", "report_json"):
+    path_val = data.get(path_field)
+    if path_val and not os.path.isfile(path_val):
+        print(f"missing report file: {path_val}", file=sys.stderr)
+        sys.exit(1)
+
+if regex:
+    blob = json.dumps(data)
+    if re.search(regex, blob, flags=re.IGNORECASE):
+        print("forbidden vendor wording found in JSON", file=sys.stderr)
+        sys.exit(1)
+PY
+}
+
+if [ -x "${REPO_ROOT}/modules/diagnostics/baseline-dns-ip.sh" ]; then
+  dns_json_output="$(BASELINE_TEST_MODE=1 HZ_BASELINE_LANG=en HZ_BASELINE_FORMAT=json bash "${REPO_ROOT}/modules/diagnostics/baseline-dns-ip.sh" "example.com" "en" --format json)"
+  validate_wrapper_json "$dns_json_output" "dns-ip" "${regex:-}"
+fi
+
+if [ -x "${REPO_ROOT}/modules/diagnostics/baseline-tls-https.sh" ]; then
+  tls_json_output="$(BASELINE_TEST_MODE=1 HZ_BASELINE_LANG=en HZ_BASELINE_FORMAT=json bash "${REPO_ROOT}/modules/diagnostics/baseline-tls-https.sh" "example.com" "en" --format json)"
+  validate_wrapper_json "$tls_json_output" "tls-https" "${regex:-}"
+fi
+
+if [ -x "${REPO_ROOT}/modules/diagnostics/baseline-cache.sh" ]; then
+  cache_json_output="$(BASELINE_TEST_MODE=1 HZ_BASELINE_LANG=en HZ_BASELINE_FORMAT=json bash "${REPO_ROOT}/modules/diagnostics/baseline-cache.sh" --format json)"
+  validate_wrapper_json "$cache_json_output" "cache-redis" "${regex:-}"
+fi
+
 
 echo "[baseline-smoke] secrets leak guard"
 TEST_DB_PASS="SuperSecret123!DoNotLeak"
