@@ -229,7 +229,10 @@ validate_wrapper_json() {
   regex_pattern="$3"
   allow_redacted="${4:-0}"
 
-  pretty="$(echo "$json_output" | python3 -m json.tool)"
+  if ! printf "%s" "$json_output" | python3 -m json.tool >/dev/null; then
+    echo "[baseline-smoke] invalid JSON payload" >&2
+    exit 1
+  fi
 
   if [ ! -f "$SCHEMA_PATH" ]; then
     echo "[baseline-smoke] schema file not found: ${SCHEMA_PATH}" >&2
