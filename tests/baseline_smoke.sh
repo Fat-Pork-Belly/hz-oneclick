@@ -223,7 +223,7 @@ fi
 
 echo "[baseline-smoke] wrapper json output"
 validate_wrapper_json() {
-  local json_output expected_group regex_pattern allow_redacted pretty
+  local json_output expected_group regex_pattern allow_redacted
   json_output="$1"
   expected_group="$2"
   regex_pattern="$3"

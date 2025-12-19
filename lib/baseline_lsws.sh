@@ -373,7 +373,7 @@ baseline_lsws_run() {
         *"killed"*|*"Killed process"*) log_keywords+=("OOM_KILLED") ;;
         *"SSL"*|*"handshake"*) log_keywords+=("SSL_HANDSHAKE") ;;
         *"cannot load"*|*"failed to load"*) log_keywords+=("LOAD_FAIL") ;;
-        *"config"*"error"*|*"configuration"*"error"*) log_keywords+=("CONFIG_ERROR") ;;
+        *"configuration"*"error"*|*"config"*"error"*) log_keywords+=("CONFIG_ERROR") ;;
       esac
     done <<< "$(printf "%s" "$log_tail")"
     log_status="PASS"
