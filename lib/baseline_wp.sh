@@ -318,48 +318,54 @@ baseline_wp_run() {
     fi
   fi
 
-  if command -v wp >/dev/null 2>&1 && [ -n "$wp_path" ] && [ -d "$wp_path" ]; then
-    wpcli_cmd=(wp --path="$wp_path" --allow-root)
+  if command -v wp >/dev/null 2>&1; then
+    if [ -n "$wp_path" ] && [ -d "$wp_path" ]; then
+      wpcli_cmd=(wp --path="$wp_path" --allow-root)
 
-    if "${wpcli_cmd[@]}" core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
-      cli_status="PASS"
-      cli_keyword="wp_installed"
-      cli_evidence="wp core is-installed: yes"
-      cli_suggestion=""
-    else
-      cli_status="FAIL"
-      cli_keyword="wp_not_installed"
-      cli_evidence="wp core is-installed: no"
-      cli_suggestion=$([ "$lang" = "en" ] && echo "Run wp core install/configure database before diagnostics." || echo "请先完成 wp core install/db 配置后再检查。")
-    fi
-    baseline_add_result "$group" "WPCLI_CORE" "$cli_status" "$cli_keyword" "$cli_evidence" "$cli_suggestion"
+      if "${wpcli_cmd[@]}" core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+        cli_status="PASS"
+        cli_keyword="wp_installed"
+        cli_evidence="wp core is-installed: yes"
+        cli_suggestion=""
+      else
+        cli_status="FAIL"
+        cli_keyword="wp_not_installed"
+        cli_evidence="wp core is-installed: no"
+        cli_suggestion=$([ "$lang" = "en" ] && echo "Run wp core install/configure database before diagnostics." || echo "请先完成 wp core install/db 配置后再检查。")
+      fi
+      baseline_add_result "$group" "WPCLI_CORE" "$cli_status" "$cli_keyword" "$cli_evidence" "$cli_suggestion"
 
-    siteurl="$("${wpcli_cmd[@]}" option get siteurl 2>/dev/null | head -n1)"
-    if [ -z "$siteurl" ]; then
-      status_line="FAIL"; keyword="siteurl_empty"; suggestion_line=$([ "$lang" = "en" ] && echo "Configure siteurl via wp option update siteurl <url>." || echo "使用 wp option update siteurl <url> 设置站点地址。")
-      evidence="siteurl: EMPTY"
-    elif echo "$siteurl" | grep -Eq '^https?://[^[:space:]]+$'; then
-      status_line="PASS"; keyword="siteurl_set"; suggestion_line=""; evidence="siteurl: SET"
-    else
-      status_line="WARN"; keyword="siteurl_invalid"; suggestion_line=$([ "$lang" = "en" ] && echo "Siteurl format looks invalid; verify protocol/domain." || echo "siteurl 格式异常，请检查协议/域名是否正确。")
-      evidence="siteurl: INVALID"
-    fi
-    baseline_add_result "$group" "WPCLI_SITEURL" "$status_line" "$keyword" "$evidence" "$suggestion_line"
+      siteurl="$("${wpcli_cmd[@]}" option get siteurl 2>/dev/null | head -n1)"
+      if [ -z "$siteurl" ]; then
+        status_line="FAIL"; keyword="siteurl_empty"; suggestion_line=$([ "$lang" = "en" ] && echo "Configure siteurl via wp option update siteurl <url>." || echo "使用 wp option update siteurl <url> 设置站点地址。")
+        evidence="siteurl: EMPTY"
+      elif echo "$siteurl" | grep -Eq '^https?://[^[:space:]]+$'; then
+        status_line="PASS"; keyword="siteurl_set"; suggestion_line=""; evidence="siteurl: SET"
+      else
+        status_line="WARN"; keyword="siteurl_invalid"; suggestion_line=$([ "$lang" = "en" ] && echo "Siteurl format looks invalid; verify protocol/domain." || echo "siteurl 格式异常，请检查协议/域名是否正确。")
+        evidence="siteurl: INVALID"
+      fi
+      baseline_add_result "$group" "WPCLI_SITEURL" "$status_line" "$keyword" "$evidence" "$suggestion_line"
 
-    homeurl="$("${wpcli_cmd[@]}" option get home 2>/dev/null | head -n1)"
-    if [ -z "$homeurl" ]; then
-      status_line="FAIL"; keyword="home_empty"; suggestion_line=$([ "$lang" = "en" ] && echo "Configure home via wp option update home <url>." || echo "使用 wp option update home <url> 设置首页地址。")
-      evidence="home: EMPTY"
-    elif echo "$homeurl" | grep -Eq '^https?://[^[:space:]]+$'; then
-      status_line="PASS"; keyword="home_set"; suggestion_line=""; evidence="home: SET"
+      homeurl="$("${wpcli_cmd[@]}" option get home 2>/dev/null | head -n1)"
+      if [ -z "$homeurl" ]; then
+        status_line="FAIL"; keyword="home_empty"; suggestion_line=$([ "$lang" = "en" ] && echo "Configure home via wp option update home <url>." || echo "使用 wp option update home <url> 设置首页地址。")
+        evidence="home: EMPTY"
+      elif echo "$homeurl" | grep -Eq '^https?://[^[:space:]]+$'; then
+        status_line="PASS"; keyword="home_set"; suggestion_line=""; evidence="home: SET"
+      else
+        status_line="WARN"; keyword="home_invalid"; suggestion_line=$([ "$lang" = "en" ] && echo "Home option looks malformed; align with siteurl." || echo "home 配置格式异常，请与 siteurl 对齐。")
+        evidence="home: INVALID"
+      fi
+      baseline_add_result "$group" "WPCLI_HOME" "$status_line" "$keyword" "$evidence" "$suggestion_line"
     else
-      status_line="WARN"; keyword="home_invalid"; suggestion_line=$([ "$lang" = "en" ] && echo "Home option looks malformed; align with siteurl." || echo "home 配置格式异常，请与 siteurl 对齐。")
-      evidence="home: INVALID"
+      baseline_add_result "$group" "WPCLI" "WARN" "wpcli_missing" \
+        "wp-cli skipped (path missing)" \
+        "$([ "$lang" = "en" ] && echo "Install wp-cli and rerun with --path to enable WordPress runtime checks." || echo "安装 wp-cli 并提供 --path，可启用 WordPress 运行态检查。")"
     fi
-    baseline_add_result "$group" "WPCLI_HOME" "$status_line" "$keyword" "$evidence" "$suggestion_line"
   else
     baseline_add_result "$group" "WPCLI" "WARN" "wpcli_missing" \
-      "$([ command -v wp >/dev/null 2>&1 ] && echo "wp-cli skipped (path missing)" || echo "wp-cli not found")" \
+      "wp-cli not found" \
       "$([ "$lang" = "en" ] && echo "Install wp-cli and rerun with --path to enable WordPress runtime checks." || echo "安装 wp-cli 并提供 --path，可启用 WordPress 运行态检查。")"
   fi
 

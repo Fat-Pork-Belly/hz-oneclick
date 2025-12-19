@@ -163,7 +163,7 @@ baseline_cache__detect_wp_path() {
 }
 
 baseline_cache__parse_wp_config() {
-  local wp_root wp_config defines object_cache dropin hint
+  local wp_root wp_config defines dropin hint
   wp_root="$1"
   defines=""
   dropin=""
@@ -319,4 +319,3 @@ baseline_cache_run() {
         echo "检查 Redis 认证/绑定，确保 PHP 可访问对应实例。")"
   fi
 }
-
