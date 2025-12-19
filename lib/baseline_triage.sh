@@ -460,11 +460,15 @@ MOCKTIMEOUT
   chmod +x "${BASELINE_TRIAGE_MOCK_DIR}/timeout"
 
   # Function overrides for deterministic hints
+  # shellcheck disable=SC2317  # Test-mode mocks are defined conditionally and invoked via baseline_* entrypoints.
   baseline_check_listen_port() { echo "OK"; }
+  # shellcheck disable=SC2317  # Test-mode mocks are defined conditionally and invoked via baseline_* entrypoints.
   baseline_db_check_tcp() { echo "OK"; }
+  # shellcheck disable=SC2317  # Test-mode mocks are defined conditionally and invoked via baseline_* entrypoints.
   baseline_proxy__openssl_probe() {
     printf "0\nsubject=CN=mock.example.com\nissuer=CN=Mock Test CA\nVerify return code: 0 (ok)\n"
   }
+  # shellcheck disable=SC2317  # Test-mode mocks are defined conditionally and invoked via baseline_* entrypoints.
   baseline_tls__run_sclient() {
     baseline_triage__mock_tls_sclient_output
   }
@@ -533,7 +537,7 @@ baseline_triage__write_json_report() {
   json_path="$5"
   report_path="$6"
 
-  local json_path_raw report_path_raw
+  local json_path_raw report_path_raw json_path_display report_path_display
   json_path_raw="$json_path"
   report_path_raw="$report_path"
 
@@ -600,8 +604,8 @@ baseline_triage__write_json_report() {
   ts="$(baseline_triage__sanitize_json_text "$ts")"
   generated_at="$(baseline_triage__sanitize_json_text "$generated_at")"
   overall="$(baseline_triage__sanitize_json_text "$overall")"
-  json_path="$(baseline_triage__sanitize_json_text "$json_path")"
-  report_path="$(baseline_triage__sanitize_json_text "$report_path")"
+  json_path_display="$(baseline_triage__sanitize_json_text "$json_path_raw")"
+  report_path_display="$(baseline_triage__sanitize_json_text "$report_path_raw")"
 
   umask 077
   {
@@ -611,8 +615,8 @@ baseline_triage__write_json_report() {
     printf '  "generated_at": "%s",\n' "$(baseline_json_escape "$generated_at")"
     printf '  "lang": "%s",\n' "$(baseline_json_escape "$lang")"
     printf '  "domain": "%s",\n' "$(baseline_json_escape "$domain")"
-    printf '  "report": "%s",\n' "$(baseline_json_escape "$report_path")"
-    printf '  "report_json": "%s",\n' "$(baseline_json_escape "$json_path")"
+    printf '  "report": "%s",\n' "$(baseline_json_escape "$report_path_display")"
+    printf '  "report_json": "%s",\n' "$(baseline_json_escape "$json_path_display")"
     printf '  "verdict": "%s",\n' "$(baseline_json_escape "$overall")"
     printf '  "results": [\n'
 

@@ -98,6 +98,10 @@ if expected and data.get("results"):
 PY
 }
 
+find_latest_triage_json() {
+  find /tmp -maxdepth 1 -type f -name 'hz-baseline-triage-*.json' -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1{print $2}'
+}
+
 echo "[smoke] collecting shell scripts (excluding modules/)"
 mapfile -d '' files < <(find . -type f -name '*.sh' -not -path './modules/*' -print0)
 
@@ -365,10 +369,10 @@ if [ -r "./modules/diagnostics/quick-triage.sh" ]; then
   fi
 
   echo "[smoke] quick triage standalone runner (redact mode)"
-  before_latest_json="$(ls -1t /tmp/hz-baseline-triage-*.json 2>/dev/null | head -n1)"
+  before_latest_json="$(find_latest_triage_json)"
   triage_output_json_redacted="$(HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" HZ_TRIAGE_REDACT=1 bash ./modules/diagnostics/quick-triage.sh --format json --redact)"
   echo "$triage_output_json_redacted" | grep -qi "<redacted"
-  latest_json="$(ls -1t /tmp/hz-baseline-triage-*.json 2>/dev/null | head -n1)"
+  latest_json="$(find_latest_triage_json)"
   if [ -z "$latest_json" ] || { [ -n "$before_latest_json" ] && [ "$latest_json" = "$before_latest_json" ]; }; then
     echo "[smoke] no new redacted triage JSON report found" >&2
     exit 1
