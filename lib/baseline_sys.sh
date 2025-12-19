@@ -54,7 +54,6 @@ baseline_sys__read_meminfo() {
 
 baseline_sys_run() {
   # Usage: baseline_sys_run <lang> OR baseline_sys_run <domain> <lang>
-  # shellcheck disable=SC2034
   local domain lang group cores load_values load1 load5 load15 load_per_core load_state
   local mem_kv memtotal_kb memavail_kb swaptotal_kb swapfree_kb swap_used_kb swap_used_pct swap_state swap_present
   local disk_info_root disk_used_pct_root disk_state_root inode_info_root inode_used_pct_root inode_state_root
@@ -70,6 +69,8 @@ baseline_sys_run() {
     domain=""
     lang="${1:-zh}"
   fi
+  # domain is currently unused in sys diagnostics, but kept for consistent entrypoint signature
+  : "${domain}"
 
   if [[ "${lang,,}" == en* ]]; then
     lang="en"

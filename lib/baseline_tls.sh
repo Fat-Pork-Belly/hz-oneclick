@@ -127,8 +127,8 @@ baseline_tls_run() {
 
   cert_pem="$(echo "$sclient_output" | sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' | sed -n '1,/-----END CERTIFICATE-----/p')"
   subject="$(baseline_tls__parse_cert_field "$cert_pem" subject)"
-  # shellcheck disable=SC2034
   issuer="$(baseline_tls__parse_cert_field "$cert_pem" issuer)"
+  : "${issuer}"
   not_before="$(baseline_tls__parse_cert_field "$cert_pem" notBefore)"
   not_after="$(baseline_tls__parse_cert_field "$cert_pem" notAfter)"
   san="$(baseline_tls__parse_cert_field "$cert_pem" san | tr -d '\n')"
