@@ -35,6 +35,23 @@ run_with_timeout() {
   fi
 }
 
+smoke_is_truthy() {
+  local value
+  value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  case "${value,,}" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+smoke_strict_enabled() {
+  smoke_is_truthy "${HZ_SMOKE_STRICT:-}"
+}
+
 smoke_verdict="PASS"
 smoke_report_path=""
 smoke_report_json_path=""
@@ -117,14 +134,18 @@ export_smoke_env() {
 }
 
 smoke_finalize() {
-  local exit_status final_exit
+  local exit_status final_exit strict_bool
   exit_status="$1"
   final_exit=2
+  strict_bool="false"
+  if smoke_strict_enabled; then
+    strict_bool="true"
+  fi
 
   export_smoke_env
   emit_smoke_annotation
 
-  if [ "$exit_status" -ne 0 ] && [ -z "$smoke_verdict" -o "$smoke_verdict" = "PASS" -o "$smoke_verdict" = "OK" ]; then
+  if [ "$exit_status" -ne 0 ] && { [ -z "$smoke_verdict" ] || [ "$smoke_verdict" = "PASS" ] || [ "$smoke_verdict" = "OK" ]; }; then
     smoke_verdict="FAIL"
   fi
 
@@ -133,7 +154,7 @@ smoke_finalize() {
       final_exit=0
       ;;
     WARN)
-      if baseline_triage_is_truthy "${HZ_SMOKE_STRICT:-}"; then
+      if [ "$strict_bool" = "true" ]; then
         final_exit=1
       else
         final_exit=0
@@ -150,6 +171,7 @@ smoke_finalize() {
   if [ "$final_exit" -eq 0 ]; then
     echo "[smoke] OK"
   fi
+  echo "[smoke] strict_raw=${HZ_SMOKE_STRICT:-} strict_effective=${strict_bool} verdict=${smoke_verdict} final_exit=${final_exit}"
   exit "$final_exit"
 }
 
@@ -451,6 +473,30 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
     fi
   done
 
+  echo "[smoke] strict boolean parsing"
+  (
+    HZ_SMOKE_STRICT=0
+    if smoke_strict_enabled; then
+      echo "[smoke] HZ_SMOKE_STRICT=0 should be false" >&2
+      exit 1
+    fi
+    HZ_SMOKE_STRICT=1
+    if ! smoke_strict_enabled; then
+      echo "[smoke] HZ_SMOKE_STRICT=1 should be true" >&2
+      exit 1
+    fi
+    HZ_SMOKE_STRICT=false
+    if smoke_strict_enabled; then
+      echo "[smoke] HZ_SMOKE_STRICT=false should be false" >&2
+      exit 1
+    fi
+    HZ_SMOKE_STRICT=true
+    if ! smoke_strict_enabled; then
+      echo "[smoke] HZ_SMOKE_STRICT=true should be true" >&2
+      exit 1
+    fi
+  )
+
   echo "[smoke] baseline_triage exit-code regression"
   warn_output_file="$(mktemp)"
   (
@@ -484,10 +530,10 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
   (
     expected_warn_non_strict=0
     expected_warn_strict=0
-    if baseline_triage__is_truthy "0"; then
+    if smoke_is_truthy "0"; then
       expected_warn_non_strict=1
     fi
-    if baseline_triage__is_truthy "1"; then
+    if smoke_is_truthy "1"; then
       expected_warn_strict=1
     fi
 
