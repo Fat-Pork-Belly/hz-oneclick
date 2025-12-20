@@ -53,6 +53,8 @@ HZ_CI_SMOKE=1 bash tests/smoke.sh
 ```
 
 - 可选环境变量：`HZ_SMOKE_STRICT=1` 将 WARN 视为失败（默认 0，WARN 仍返回 0）。
+- PR smoke 出现 WARN 会在 GitHub Actions 中生成 warning annotation（默认不失败）。
+- PR smoke 失败时会在 Actions 的 Artifacts 中上传 `smoke-triage-reports`，包含 `/tmp/hz-baseline-triage-*.txt` 和 `/tmp/hz-baseline-triage-*.json`（WARN 时也会上传）。
 
 ### Full Regression（完整回归）
 

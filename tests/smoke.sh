@@ -35,6 +35,95 @@ run_with_timeout() {
   fi
 }
 
+is_truthy() {
+  case "$(printf "%s" "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    1|true|yes|y|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+smoke_verdict="PASS"
+smoke_report_path=""
+smoke_report_json_path=""
+
+smoke_verdict_rank() {
+  case "$1" in
+    FAIL)
+      echo 3
+      ;;
+    WARN)
+      echo 2
+      ;;
+    PASS)
+      echo 1
+      ;;
+    *)
+      echo 0
+      ;;
+  esac
+}
+
+update_smoke_verdict_from_output() {
+  local output parsed_verdict parsed_report parsed_report_json
+  output="$1"
+  parsed_verdict="$(printf "%s\n" "$output" | awk -F':' '/^VERDICT:/ {print $2}' | awk '{print $1}' | tail -n1)"
+  if [ -z "$parsed_verdict" ]; then
+    return 0
+  fi
+
+  parsed_report="$(printf "%s\n" "$output" | awk '/^REPORT:/ {print $2}' | tail -n1)"
+  parsed_report_json="$(printf "%s\n" "$output" | awk '/^REPORT_JSON:/ {print $2}' | tail -n1)"
+
+  if [ "$(smoke_verdict_rank "$parsed_verdict")" -ge "$(smoke_verdict_rank "$smoke_verdict")" ]; then
+    smoke_verdict="$parsed_verdict"
+    if [ -n "$parsed_report" ]; then
+      smoke_report_path="$parsed_report"
+    fi
+    if [ -n "$parsed_report_json" ]; then
+      smoke_report_json_path="$parsed_report_json"
+    fi
+  fi
+}
+
+emit_smoke_annotation() {
+  local message
+  if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+    return 0
+  fi
+  if [ -z "$smoke_verdict" ] || [ "$smoke_verdict" = "PASS" ]; then
+    return 0
+  fi
+
+  message="verdict=${smoke_verdict}"
+  if [ -n "$smoke_report_path" ]; then
+    message="${message} report=${smoke_report_path}"
+  fi
+  if [ -n "$smoke_report_json_path" ]; then
+    message="${message} report_json=${smoke_report_json_path}"
+  fi
+
+  if [ "$smoke_verdict" = "WARN" ]; then
+    echo "::warning title=Smoke verdict::${message}"
+  elif [ "$smoke_verdict" = "FAIL" ]; then
+    echo "::error title=Smoke verdict::${message}"
+  fi
+}
+
+export_smoke_env() {
+  if [ -z "${GITHUB_ENV:-}" ]; then
+    return 0
+  fi
+  {
+    echo "HZ_SMOKE_VERDICT=${smoke_verdict}"
+    [ -n "$smoke_report_path" ] && echo "HZ_SMOKE_REPORT_PATH=${smoke_report_path}"
+    [ -n "$smoke_report_json_path" ] && echo "HZ_SMOKE_REPORT_JSON_PATH=${smoke_report_json_path}"
+  } >> "$GITHUB_ENV"
+}
+
 validate_json_file() {
   local json_path expected_group
   json_path="$1"
@@ -332,6 +421,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
   done
 
   echo "[smoke] baseline_triage exit-code regression"
+  warn_output_file="$(mktemp)"
   (
     baseline_triage__run_groups() {
       baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
@@ -347,11 +437,17 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
       exit 1
     fi
 
-    if ! (set -e; HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke); then
+    set +e
+    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke > "$warn_output_file"
+    warn_exit_code=$?
+    set -e
+    if [ "$warn_exit_code" -ne 0 ]; then
       echo "[smoke] baseline_triage smoke mode should exit 0" >&2
       exit 1
     fi
   )
+  update_smoke_verdict_from_output "$(cat "$warn_output_file")"
+  rm -f "$warn_output_file"
 
   echo "[smoke] smoke verdict strictness policy"
   (
@@ -401,6 +497,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
 
   echo "[smoke] baseline_triage report output"
   triage_output="$( ( HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke ) )"
+  update_smoke_verdict_from_output "$triage_output"
   echo "$triage_output" | grep -q "^VERDICT:"
   echo "$triage_output" | grep -q "^KEY:"
   report_path="$(echo "$triage_output" | awk '/^REPORT:/ {print $2}')"
@@ -413,6 +510,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
 
   echo "[smoke] baseline_triage json output"
   triage_json_output="$( ( HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" "json" --smoke ) )"
+  update_smoke_verdict_from_output "$triage_json_output"
   echo "$triage_json_output" | grep -q "^REPORT_JSON:"
   json_report_path="$(echo "$triage_json_output" | awk '/^REPORT_JSON:/ {print $2}')"
   if [ -z "$json_report_path" ] || [ ! -f "$json_report_path" ]; then
@@ -455,6 +553,7 @@ fi
 echo "[smoke] quick triage standalone runner"
 if [ -r "./modules/diagnostics/quick-triage.sh" ]; then
   triage_output="$(run_with_timeout 90s env HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --smoke)"
+  update_smoke_verdict_from_output "$triage_output"
   echo "$triage_output" | grep -q "^VERDICT:"
   echo "$triage_output" | grep -q "^KEY:"
   echo "$triage_output" | grep -q "^REPORT:"
@@ -467,6 +566,7 @@ if [ -r "./modules/diagnostics/quick-triage.sh" ]; then
   grep -q "Baseline Diagnostics Summary" "$standalone_report"
 
   triage_output_json="$(run_with_timeout 90s env HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --format json --smoke)"
+  update_smoke_verdict_from_output "$triage_output_json"
   echo "$triage_output_json" | grep -q "^REPORT_JSON:"
   standalone_json_report="$(echo "$triage_output_json" | awk '/^REPORT_JSON:/ {print $2}')"
   if [ -z "$standalone_json_report" ] || [ ! -f "$standalone_json_report" ]; then
@@ -504,4 +604,19 @@ fi
 echo "[smoke] baseline regression suite"
 run_with_timeout 90s env HZ_CI_SMOKE=1 bash tests/baseline_smoke.sh
 
-echo "[smoke] OK"
+export_smoke_env
+emit_smoke_annotation
+
+smoke_exit=0
+if [ "$smoke_verdict" = "FAIL" ]; then
+  smoke_exit=1
+elif [ "$smoke_verdict" = "WARN" ]; then
+  if is_truthy "${HZ_SMOKE_STRICT:-}"; then
+    smoke_exit=1
+  fi
+fi
+
+if [ "$smoke_exit" -eq 0 ]; then
+  echo "[smoke] OK"
+fi
+exit "$smoke_exit"
