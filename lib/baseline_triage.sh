@@ -106,6 +106,8 @@ baseline_triage__normalize_format() {
 
 baseline_triage__smoke_enabled() {
   local arg env_value
+  # Smoke mode is enabled via CLI flags (--smoke/--exit0/--no-fail) or
+  # HZ_CI_SMOKE truthy values (1/true/yes/y/on, whitespace-insensitive).
   env_value="${HZ_CI_SMOKE:-0}"
 
   for arg in "$@"; do
@@ -116,6 +118,8 @@ baseline_triage__smoke_enabled() {
     esac
   done
 
+  env_value="${env_value#"${env_value%%[![:space:]]*}"}"
+  env_value="${env_value%"${env_value##*[![:space:]]}"}"
   case "${env_value,,}" in
     1|true|yes|y|on)
       return 0
@@ -687,12 +691,13 @@ baseline_triage__write_json_report() {
 baseline_triage_run() {
   # Usage: baseline_triage_run "<domain>" "<lang>" "[format|--format <val>|--format=<val>]" "[--smoke|--exit0|--no-fail]"
   local domain lang format ts overall verdict_reason key_line report_path report_json_path summary_output details_output header_text safe_domain
-  local smoke_mode errexit_set smoke_flag format_arg format_set
+  local smoke_mode errexit_set format_arg format_set
+  local -a triage_args
   domain="$1"
   lang="$(baseline_triage__normalize_lang "$2")"
   shift 2 || true
+  triage_args=("$@")
   format_arg="text"
-  smoke_flag=""
   format_set=0
 
   while [ "$#" -gt 0 ]; do
@@ -708,7 +713,6 @@ baseline_triage_run() {
         shift
         ;;
       --smoke|--exit0|--no-fail)
-        smoke_flag="$1"
         shift
         ;;
       json|text)
@@ -744,7 +748,7 @@ baseline_triage_run() {
   baseline_init
   baseline_triage__setup_test_mode
 
-  if baseline_triage__smoke_enabled "$smoke_flag"; then
+  if baseline_triage__smoke_enabled "${triage_args[@]}"; then
     smoke_mode=1
     case $- in
       *e*)

@@ -343,13 +343,13 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
       exit 1
     fi
 
-    if ! (set -e; BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke); then
+    if ! (set -e; HZ_CI_SMOKE=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke); then
       echo "[smoke] baseline_triage smoke mode should exit 0" >&2
       exit 1
     fi
   )
 
-  triage_output="$( ( BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke ) )"
+  triage_output="$( ( HZ_CI_SMOKE=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke ) )"
   echo "$triage_output" | grep -q "^VERDICT:"
   echo "$triage_output" | grep -q "^KEY:"
   report_path="$(echo "$triage_output" | awk '/^REPORT:/ {print $2}')"
@@ -360,7 +360,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
   grep -q "HZ Quick Triage Report" "$report_path"
   grep -q "Baseline Diagnostics Summary" "$report_path"
 
-  triage_json_output="$( ( BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" "json" --smoke ) )"
+  triage_json_output="$( ( HZ_CI_SMOKE=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" "json" --smoke ) )"
   echo "$triage_json_output" | grep -q "^REPORT_JSON:"
   json_report_path="$(echo "$triage_json_output" | awk '/^REPORT_JSON:/ {print $2}')"
   if [ -z "$json_report_path" ] || [ ! -f "$json_report_path" ]; then
@@ -402,7 +402,7 @@ fi
 
 echo "[smoke] quick triage standalone runner"
 if [ -r "./modules/diagnostics/quick-triage.sh" ]; then
-  triage_output="$(run_with_timeout 90s env HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --smoke)"
+  triage_output="$(run_with_timeout 90s env HZ_CI_SMOKE=1 HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --smoke)"
   echo "$triage_output" | grep -q "^VERDICT:"
   echo "$triage_output" | grep -q "^KEY:"
   echo "$triage_output" | grep -q "^REPORT:"
@@ -414,7 +414,7 @@ if [ -r "./modules/diagnostics/quick-triage.sh" ]; then
   grep -q "HZ Quick Triage Report" "$standalone_report"
   grep -q "Baseline Diagnostics Summary" "$standalone_report"
 
-  triage_output_json="$(run_with_timeout 90s env HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --format json --smoke)"
+  triage_output_json="$(run_with_timeout 90s env HZ_CI_SMOKE=1 HZ_TRIAGE_TEST_MODE=1 BASELINE_TEST_MODE=1 HZ_TRIAGE_USE_LOCAL=1 HZ_TRIAGE_LOCAL_ROOT="$(pwd)" HZ_TRIAGE_LANG=en HZ_TRIAGE_TEST_DOMAIN="abc.yourdomain.com" bash ./modules/diagnostics/quick-triage.sh --format json --smoke)"
   echo "$triage_output_json" | grep -q "^REPORT_JSON:"
   standalone_json_report="$(echo "$triage_output_json" | awk '/^REPORT_JSON:/ {print $2}')"
   if [ -z "$standalone_json_report" ] || [ ! -f "$standalone_json_report" ]; then
