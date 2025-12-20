@@ -66,3 +66,13 @@ jobs:
           HZ_SMOKE_STRICT: "0"
         run: |
           timeout 90s bash tests/smoke.sh
+
+      - name: Upload smoke artifacts
+        if: failure() || env.HZ_SMOKE_VERDICT == 'WARN'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-triage-reports
+          path: |
+            /tmp/hz-baseline-triage-*.txt
+            /tmp/hz-baseline-triage-*.json
+          if-no-files-found: ignore
