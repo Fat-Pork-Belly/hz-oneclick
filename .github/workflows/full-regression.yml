@@ -57,15 +57,12 @@ jobs:
             value="${value#"${value%%[![:space:]]*}"}"
             value="${value%"${value##*[![:space:]]}"}"
             value="${value^^}"
-            token="${value%%[^[:alpha:]]*}"
-            case "$token" in
-              PASS|OK|WARN|FAIL)
-                printf '%s' "$token"
-                ;;
-              *)
-                printf 'FAIL'
-                ;;
-            esac
+            token="$(printf '%s' "$value" | grep -Eo '(PASS|OK|WARN|FAIL)' | head -n1 || true)"
+            if [ -n "$token" ]; then
+              printf '%s' "$token"
+            else
+              printf 'FAIL'
+            fi
           }
 
           normalize_strict() {
@@ -86,6 +83,9 @@ jobs:
           verdict="$(normalize_verdict "$verdict_raw")"
           strict_enabled="$(normalize_strict "$strict_raw")"
           exit_code="${exit_code:-1}"
+          if { [ "$verdict" = "PASS" ] || [ "$verdict" = "OK" ]; } && [ "$exit_code" -ne 0 ]; then
+            verdict="FAIL"
+          fi
 
           {
             echo "### Smoke verdict"
