@@ -110,9 +110,9 @@ sanitize_output() {
 }
 
 parse_args() {
-  HZ_TRIAGE_ARGS=("$@")
   local -a args=("$@")
-  local idx arg next
+  local -a forward_args=()
+  local idx arg
   idx=0
   while [ "$idx" -lt "${#args[@]}" ]; do
     arg="${args[$idx]}"
@@ -124,15 +124,17 @@ parse_args() {
       --help)
         echo "Usage: $0 [--format text|json] [--redact] [--smoke|--exit0|--no-fail]"
         echo "  --smoke/--exit0/--no-fail: force exit 0 for smoke triage only"
-        echo "  HZ_CI_SMOKE=1 (true/yes/y/on) enables smoke mode in CI"
+        echo "  HZ_CI_SMOKE truthy values (1/true/yes/y/on, whitespace ok) enable smoke mode in CI"
         exit 0
         ;;
       *)
-        # Ignore unknown args for forward compatibility
+        # Forward unknown args unchanged to baseline triage.
+        forward_args+=("$arg")
         idx=$((idx + 1))
         ;;
     esac
   done
+  HZ_TRIAGE_ARGS=("${forward_args[@]}")
 }
 
 run_triage() {
