@@ -67,7 +67,7 @@ smoke_verdict_rank() {
     WARN)
       echo 2
       ;;
-    PASS)
+    PASS|OK)
       echo 1
       ;;
     *)
@@ -150,7 +150,7 @@ smoke_finalize() {
   fi
 
   case "$smoke_verdict" in
-    PASS|OK|"")
+    PASS|OK)
       final_exit=0
       ;;
     WARN)
