@@ -61,18 +61,12 @@ smoke_normalize_verdict() {
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   value="${value^^}"
-  token="${value%%[^[:alpha:]]*}"
-  case "$token" in
-    PASS|OK|WARN|FAIL)
-      printf '%s' "$token"
-      ;;
-    "")
-      printf ''
-      ;;
-    *)
-      printf 'FAIL'
-      ;;
-  esac
+  token="$(printf '%s' "$value" | grep -Eo '(PASS|OK|WARN|FAIL)' | head -n1 || true)"
+  if [ -n "$token" ]; then
+    printf '%s' "$token"
+  else
+    printf 'FAIL'
+  fi
 }
 
 smoke_determine_exit() {
@@ -112,38 +106,114 @@ smoke_determine_exit() {
   printf '%s\n' "$final_exit"
 }
 
+export_smoke_env() {
+  local strict_effective
+  local verdict_raw verdict_normalized
+  strict_effective="${1:-0}"
+  verdict_raw="${2:-$smoke_verdict}"
+  verdict_normalized="$(smoke_normalize_verdict "$verdict_raw")"
+
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    {
+      echo "HZ_SMOKE_VERDICT=${verdict_normalized}"
+      echo "HZ_SMOKE_STRICT_EFFECTIVE=${strict_effective}"
+      [ -n "$verdict_raw" ] && [ "$verdict_raw" != "$verdict_normalized" ] && echo "HZ_SMOKE_VERDICT_DETAIL=${verdict_raw}"
+      [ -n "$smoke_report_path" ] && echo "HZ_SMOKE_REPORT_PATH=${smoke_report_path}"
+      [ -n "$smoke_report_json_path" ] && echo "HZ_SMOKE_REPORT_JSON_PATH=${smoke_report_json_path}"
+    } >> "$GITHUB_ENV"
+  fi
+
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    {
+      echo "HZ_SMOKE_VERDICT=${verdict_normalized}"
+      [ -n "$verdict_raw" ] && [ "$verdict_raw" != "$verdict_normalized" ] && echo "HZ_SMOKE_VERDICT_DETAIL=${verdict_raw}"
+      [ -n "$smoke_report_path" ] && echo "HZ_SMOKE_REPORT_PATH=${smoke_report_path}"
+      [ -n "$smoke_report_json_path" ] && echo "HZ_SMOKE_REPORT_JSON_PATH=${smoke_report_json_path}"
+      [ -n "$smoke_report_path" ] && echo "smoke_report_path=${smoke_report_path}"
+      [ -n "$smoke_report_json_path" ] && echo "smoke_report_json_path=${smoke_report_json_path}"
+    } >> "$GITHUB_OUTPUT"
+  fi
+}
+
 if [ "${HZ_SMOKE_SELFTEST:-}" = "1" ]; then
   failures=0
   smoke_expect_exit() {
-    local verdict strict exit_status expected actual normalized
-    verdict="$1"
-    strict="$2"
-    exit_status="$3"
-    expected="$4"
-    normalized="$(smoke_normalize_verdict "$verdict")"
-    actual="$(smoke_determine_exit "$normalized" "$strict" "$exit_status")"
-    if [ "$normalized" != "$verdict" ] || [ "$actual" -ne "$expected" ]; then
-      echo "[smoke-selftest] FAIL verdict=${verdict} normalized=${normalized} strict=${strict} exit_status=${exit_status} expected=${expected} got=${actual}" >&2
+    local raw_verdict expected_verdict strict exit_status expected actual normalized
+    raw_verdict="$1"
+    expected_verdict="$2"
+    strict="$3"
+    exit_status="$4"
+    expected="$5"
+    normalized="$(smoke_normalize_verdict "$raw_verdict")"
+    actual="$(smoke_determine_exit "$raw_verdict" "$strict" "$exit_status")"
+    if [ "$normalized" != "$expected_verdict" ] || [ "$actual" -ne "$expected" ]; then
+      echo "[smoke-selftest] FAIL verdict=${raw_verdict} normalized=${normalized} expected_verdict=${expected_verdict} strict=${strict} exit_status=${exit_status} expected=${expected} got=${actual}" >&2
       return 1
     fi
   }
 
-  if ! smoke_expect_exit "WARN" 0 0 0; then
+  smoke_expect_export() {
+    local raw_verdict expected_verdict output_file
+    raw_verdict="$1"
+    expected_verdict="$2"
+    output_file="$(mktemp)"
+    GITHUB_OUTPUT="$output_file"
+    smoke_verdict="$raw_verdict"
+    smoke_report_path=""
+    smoke_report_json_path=""
+    export_smoke_env 0 "$raw_verdict"
+    if ! grep -q "^HZ_SMOKE_VERDICT=${expected_verdict}$" "$output_file"; then
+      echo "[smoke-selftest] FAIL export verdict=${raw_verdict} expected=${expected_verdict} output=$(cat "$output_file")" >&2
+      rm -f "$output_file"
+      return 1
+    fi
+    rm -f "$output_file"
+  }
+
+  if ! smoke_expect_exit "WARN" "WARN" 0 0 0; then
     failures=$((failures + 1))
   fi
-  if ! smoke_expect_exit "WARN" 1 0 1; then
+  if ! smoke_expect_exit "WARN" "WARN" 1 0 1; then
     failures=$((failures + 1))
   fi
-  if ! smoke_expect_exit "WARN" 0 2 0; then
+  if ! smoke_expect_exit "WARN" "WARN" 0 2 0; then
     failures=$((failures + 1))
   fi
-  if ! smoke_expect_exit "FAIL" 0 0 1; then
+  if ! smoke_expect_exit "FAIL" "FAIL" 0 0 1; then
     failures=$((failures + 1))
   fi
-  if ! smoke_expect_exit "WARN" 1 2 1; then
+  if ! smoke_expect_exit "WARN" "WARN" 1 2 1; then
     failures=$((failures + 1))
   fi
-  if ! smoke_expect_exit "PASS" 0 0 0; then
+  if ! smoke_expect_exit "PASS" "PASS" 0 0 0; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_exit "VERDICT: WARN (test_warn:TEST_WARN)" "WARN" 0 0 0; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_exit "verdict: warn" "WARN" 0 0 0; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_exit "OK" "OK" 0 0 0; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_exit "" "FAIL" 0 0 1; then
+    failures=$((failures + 1))
+  fi
+
+  if ! smoke_expect_export "WARN" "WARN"; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_export "VERDICT: WARN (test_warn:TEST_WARN)" "WARN"; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_export "verdict: warn" "WARN"; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_export "OK" "OK"; then
+    failures=$((failures + 1))
+  fi
+  if ! smoke_expect_export "" "FAIL"; then
     failures=$((failures + 1))
   fi
 
@@ -227,40 +297,14 @@ emit_smoke_annotation() {
   fi
 }
 
-export_smoke_env() {
-  local strict_effective
-  strict_effective="${1:-0}"
-
-  if [ -n "${GITHUB_ENV:-}" ]; then
-    {
-      echo "HZ_SMOKE_VERDICT=${smoke_verdict}"
-      echo "HZ_SMOKE_STRICT_EFFECTIVE=${strict_effective}"
-      [ -n "$smoke_report_path" ] && echo "HZ_SMOKE_REPORT_PATH=${smoke_report_path}"
-      [ -n "$smoke_report_json_path" ] && echo "HZ_SMOKE_REPORT_JSON_PATH=${smoke_report_json_path}"
-    } >> "$GITHUB_ENV"
-  fi
-
-  if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    {
-      [ -n "$smoke_verdict" ] && echo "HZ_SMOKE_VERDICT=${smoke_verdict}"
-      [ -n "$smoke_report_path" ] && echo "HZ_SMOKE_REPORT_PATH=${smoke_report_path}"
-      [ -n "$smoke_report_json_path" ] && echo "HZ_SMOKE_REPORT_JSON_PATH=${smoke_report_json_path}"
-      [ -n "$smoke_report_path" ] && echo "smoke_report_path=${smoke_report_path}"
-      [ -n "$smoke_report_json_path" ] && echo "smoke_report_json_path=${smoke_report_json_path}"
-    } >> "$GITHUB_OUTPUT"
-  fi
-}
-
 smoke_finalize() {
-  local exit_status final_exit strict_effective
+  local exit_status final_exit strict_effective verdict_raw
   exit_status="$1"
   final_exit=1
   strict_effective=0
+  verdict_raw="$smoke_verdict"
 
   smoke_verdict="$(smoke_normalize_verdict "$smoke_verdict")"
-  if [ -z "$smoke_verdict" ]; then
-    smoke_verdict="FAIL"
-  fi
   if smoke_strict_enabled; then
     strict_effective=1
   fi
@@ -271,7 +315,7 @@ smoke_finalize() {
 
   final_exit="$(smoke_determine_exit "$smoke_verdict" "$strict_effective" "$exit_status")"
 
-  export_smoke_env "$strict_effective"
+  export_smoke_env "$strict_effective" "$verdict_raw"
   emit_smoke_annotation
 
   if [ "$final_exit" -eq 0 ]; then
