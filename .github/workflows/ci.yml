@@ -14,6 +14,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Guard against deprecated installer host
+        run: |
+          set -euo pipefail
+          pattern="sh.horizontech"
+          pattern="${pattern}.page"
+          if git grep -n "$pattern"; then
+            echo "Deprecated installer host detected. Use https://sh.horizontech.eu.org instead."
+            exit 1
+          fi
+
       - name: Install tools
         run: |
           bash .github/scripts/install_ci_tools.sh

@@ -27,7 +27,12 @@ HorizonTech 的一键安装脚本合集。
 bash <(curl -fsSL https://sh.horizontech.eu.org)
 
 ```
-> 说明：旧的 https://sh.horizontech.page 可能在过渡期内仍可用，但仅作为临时兼容。
+
+可选备用（GitHub Raw）：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Fat-Pork-Belly/hz-oneclick/main/hz.sh)
+```
 
 ## 贡献与提交流程
 
