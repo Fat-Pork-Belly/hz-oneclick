@@ -51,6 +51,11 @@ BOLD="\033[1m"
 NC="\033[0m"
 
 POST_SUMMARY_SHOWN=0
+SITE_SIZE_LIMIT_ENABLED="no"
+SITE_SIZE_LIMIT_GB=""
+SITE_SIZE_CHECK_SCRIPT=""
+SITE_SIZE_CHECK_SERVICE=""
+SITE_SIZE_CHECK_TIMER=""
 
 if [ -r "$COMMON_LIB" ]; then
   # shellcheck source=/dev/null
@@ -1737,6 +1742,136 @@ download_wordpress() {
   log_info "WordPress 已部署到 ${DOC_ROOT}。"
 }
 
+prompt_site_size_limit() {
+  # [ANCHOR:SITE_SIZE_LIMIT_PROMPT]
+  local choice
+
+  SITE_SIZE_LIMIT_ENABLED="no"
+  SITE_SIZE_LIMIT_GB=""
+
+  read -rp "是否启用站点容量软限制监控？[Y/n]（默认不启用）: " choice
+  choice="${choice:-N}"
+
+  case "$choice" in
+    [Yy]*)
+      SITE_SIZE_LIMIT_ENABLED="yes"
+      while :; do
+        read -rp "请输入容量上限（单位 GB，例如 5）: " SITE_SIZE_LIMIT_GB
+        if [[ "$SITE_SIZE_LIMIT_GB" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+          && awk -v v="$SITE_SIZE_LIMIT_GB" 'BEGIN{exit (v>0)?0:1}'; then
+          break
+        fi
+        log_warn "容量上限必须为大于 0 的数字。"
+      done
+      ;;
+    *)
+      SITE_SIZE_LIMIT_ENABLED="no"
+      ;;
+  esac
+}
+
+setup_site_size_limit_monitor() {
+  # [ANCHOR:SITE_SIZE_LIMIT_SETUP]
+  if [ "${SITE_SIZE_LIMIT_ENABLED:-no}" != "yes" ]; then
+    return
+  fi
+
+  local slug="${SITE_SLUG}"
+  local site_dir="${DOC_ROOT}"
+  local limit_gb="${SITE_SIZE_LIMIT_GB}"
+
+  SITE_SIZE_CHECK_SCRIPT="/usr/local/bin/wp-site-size-check-${slug}.sh"
+  SITE_SIZE_CHECK_SERVICE="/etc/systemd/system/wp-site-size-check-${slug}.service"
+  SITE_SIZE_CHECK_TIMER="/etc/systemd/system/wp-site-size-check-${slug}.timer"
+
+  cat >"$SITE_SIZE_CHECK_SCRIPT" <<EOF
+#!/usr/bin/env bash
+set -Eeo pipefail
+
+SITE_DIR="${site_dir}"
+LIMIT_GB="${limit_gb}"
+ALERT_SCRIPT="/usr/local/bin/send-alert-mail.sh"
+ALERT_EMAIL="\${WP_SITE_SIZE_ALERT_EMAIL:-}"
+
+log_warn() { echo "[WARN][\$(date +'%Y-%m-%d %H:%M:%S')] \$*" >&2; }
+
+if [ ! -d "\$SITE_DIR" ]; then
+  log_warn "Site directory not found: \$SITE_DIR"
+  exit 0
+fi
+
+size_mb="\$(du -sm "\$SITE_DIR" 2>/dev/null | awk '{print \$1}')"
+if [[ -z "\$size_mb" || ! "\$size_mb" =~ ^[0-9]+$ ]]; then
+  log_warn "Unable to measure site size for \$SITE_DIR"
+  exit 0
+fi
+
+limit_mb="\$(awk -v limit="\$LIMIT_GB" 'BEGIN{printf "%.0f", limit*1024}')"
+if [[ -z "\$limit_mb" || ! "\$limit_mb" =~ ^[0-9]+$ ]]; then
+  log_warn "Invalid size limit (GB): \$LIMIT_GB"
+  exit 0
+fi
+
+if [ "\$size_mb" -gt "\$limit_mb" ]; then
+  msg="Site size limit exceeded for ${slug}: \${size_mb}MB > \${limit_mb}MB (limit \${LIMIT_GB}GB). Path: \$SITE_DIR"
+  if [ -x "\$ALERT_SCRIPT" ] && [ -n "\$ALERT_EMAIL" ]; then
+    "\$ALERT_SCRIPT" "[ALERT] WordPress site size limit exceeded (${slug})" "\$msg" "\$ALERT_EMAIL" \
+      || log_warn "Failed to send alert via \$ALERT_SCRIPT"
+  else
+    log_warn "\$msg"
+  fi
+fi
+EOF
+
+  chmod +x "$SITE_SIZE_CHECK_SCRIPT"
+
+  cat >"$SITE_SIZE_CHECK_SERVICE" <<EOF
+[Unit]
+Description=WordPress site size check (${slug})
+
+[Service]
+Type=oneshot
+ExecStart=${SITE_SIZE_CHECK_SCRIPT}
+EOF
+
+  cat >"$SITE_SIZE_CHECK_TIMER" <<EOF
+[Unit]
+Description=Run WordPress site size check (${slug}) hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  systemctl daemon-reload
+  systemctl enable --now "wp-site-size-check-${slug}.timer"
+
+  log_info "已启用站点容量监控: ${SITE_SIZE_CHECK_SCRIPT}"
+}
+
+print_site_size_limit_summary() {
+  # [ANCHOR:SITE_SIZE_LIMIT_SUMMARY]
+  echo
+  echo -e "${CYAN}站点容量监控（可选）${NC}"
+  if [ "${SITE_SIZE_LIMIT_ENABLED:-no}" != "yes" ]; then
+    echo "未启用站点容量监控。"
+    return
+  fi
+
+  echo "容量上限: ${SITE_SIZE_LIMIT_GB} GB（仅监控告警，不阻止写入）"
+  echo "检查脚本: ${SITE_SIZE_CHECK_SCRIPT}"
+  echo "systemd service: ${SITE_SIZE_CHECK_SERVICE}"
+  echo "systemd timer: ${SITE_SIZE_CHECK_TIMER}"
+  echo
+  echo "禁用/移除："
+  echo "  systemctl disable --now wp-site-size-check-${SITE_SLUG}.timer"
+  echo "  rm -f ${SITE_SIZE_CHECK_SERVICE} ${SITE_SIZE_CHECK_TIMER} ${SITE_SIZE_CHECK_SCRIPT}"
+  echo "  systemctl daemon-reload"
+}
+
 generate_wp_config() {
   # [ANCHOR:WP_CONFIG_GENERATE]
   log_step "生成 wp-config.php"
@@ -1993,9 +2128,12 @@ install_frontend_only_flow() {
   install_packages
   setup_vhost_config
   download_wordpress
+  prompt_site_size_limit
+  setup_site_size_limit_monitor
   fix_permissions
   env_self_check
   configure_ssl
+  print_site_size_limit_summary
 
   if [ "${POST_SUMMARY_SHOWN:-0}" -eq 0 ]; then
     show_post_install_summary "${SITE_DOMAIN}"
@@ -2051,11 +2189,14 @@ install_standard_flow() {
   install_packages
   setup_vhost_config
   download_wordpress
+  prompt_site_size_limit
+  setup_site_size_limit_monitor
   generate_wp_config
   fix_permissions
   env_self_check
   configure_ssl
   print_summary
+  print_site_size_limit_summary
 
   if [ "${POST_SUMMARY_SHOWN:-0}" -eq 0 ]; then
     show_post_install_summary "${SITE_DOMAIN}"
@@ -2345,12 +2486,15 @@ install_hub_flow() {
   install_packages
   setup_vhost_config
   download_wordpress
+  prompt_site_size_limit
+  setup_site_size_limit_monitor
   generate_wp_config
   fix_permissions
   env_self_check
   configure_ssl
   print_summary
   print_hub_summary
+  print_site_size_limit_summary
 
   if [ "${POST_SUMMARY_SHOWN:-0}" -eq 0 ]; then
     show_post_install_summary "${SITE_DOMAIN}"
