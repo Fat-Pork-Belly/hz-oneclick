@@ -7,6 +7,8 @@ on:
 permissions:
   pull-requests: write
   contents: write
+  checks: read
+  actions: read
 
 concurrency:
   group: automerge-pr-${{ github.event.pull_request.number }}
@@ -21,6 +23,22 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'codex/')
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Self-test required checks parser
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/require_checks.sh --self-test
+
+      - name: Verify required checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          ./.github/scripts/require_checks.sh
+          --pr ${{ github.event.pull_request.number }}
+          --repo ${{ github.repository }}
+
       - name: Enable auto-merge (squash)
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
