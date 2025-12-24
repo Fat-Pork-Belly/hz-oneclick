@@ -1567,29 +1567,56 @@ test_db_connection() {
   log_step "测试数据库连通性"
 
   local host="$DB_HOST"
-  local port="3306"
+  local port="${DB_PORT:-3306}"
+  local tcp_err=""
+  local mysql_err=""
 
   # 允许 DB_HOST 以 host:port 形式填写
   if [[ "$host" == *:* ]]; then
     port="${host##*:}"
     host="${host%%:*}"
+    if [ -z "$host" ]; then
+      log_error "DB Host 格式无效（host 不能为空）。"
+      return 1
+    fi
+  fi
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    log_error "DB 端口必须为数字（当前: ${port}）。"
+    return 1
+  fi
+  DB_PORT="$port"
+
+  log_info "TCP 连通性检测: ${host}:${port}"
+  if ! tcp_err="$(timeout 3 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" 2>&1 >/dev/null)"; then
+    log_error "无法连接到 ${host}:${port}（TCP 不可达）。"
+    log_warn "可能原因：防火墙/安全组未放行端口、服务未监听、内网或隧道未连接、地址填写错误。"
+    [ -n "$tcp_err" ] && log_warn "系统提示: ${tcp_err}"
+    return 1
   fi
 
   # 确保有 mysql/mariadb 客户端可用
   if ! command -v mysql >/dev/null 2>&1; then
-    log_warn "未找到 mysql 客户端，将尝试安装 mariadb-client 用于数据库连通性测试。"
-    apt update
-    apt install -y mariadb-client
+    log_warn "未找到 mysql 客户端，已跳过认证检查。"
+    log_warn "如需完整检查，请安装 mariadb-client 或 mysql-client 后重试。"
+    return 0
   fi
 
-  if mysql -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -e "USE \`$DB_NAME\`; SELECT 1;" >/dev/null 2>&1; then
-    log_info "成功连接到数据库：${DB_USER}@${host}:${port} / ${DB_NAME}"
+  if mysql_err="$( { mysql -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -e "SELECT 1;" >/dev/null; } 2>&1 )"; then
+    log_info "认证通过：${DB_USER}@${host}:${port}"
     return 0
-  else
-    log_error "无法连接到数据库：${DB_USER}@${host}:${port} / ${DB_NAME}"
-    log_warn "常见原因：密码错误 / 数据库未启动 / 网络或防火墙未放行 / 用户无该库权限。"
-    return 1
   fi
+
+  log_error "数据库认证失败：${DB_USER}@${host}:${port}"
+  if echo "$mysql_err" | grep -qi "Access denied"; then
+    log_warn "可能原因：用户名/密码错误，或该用户未被授权从此主机连接。"
+  elif echo "$mysql_err" | grep -qi "Unknown MySQL server host\|Unknown host"; then
+    log_warn "可能原因：DB Host 无法解析，或地址拼写有误。"
+  elif echo "$mysql_err" | grep -qi "Can't connect to MySQL server"; then
+    log_warn "可能原因：端口未放行/服务未启动/绑定地址限制。"
+  else
+    [ -n "$mysql_err" ] && log_warn "系统提示: ${mysql_err}"
+  fi
+  return 1
 }
 
 install_packages() {
