@@ -25,6 +25,11 @@ ownership and permission guidance.
 See [Configuration file locations](config.md) for how to locate active config
 files and common paths with placeholders.
 
+## Troubleshooting
+
+See [Troubleshooting](troubleshooting.md) for common startup failure checks and
+fixes.
+
 ## Default install paths (placeholders)
 
 | Purpose | Example path | Notes |
