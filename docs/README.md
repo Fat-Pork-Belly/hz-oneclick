@@ -35,6 +35,11 @@ fixes.
 See [Logging locations](logging.md) for common log paths and discovery
 commands.
 
+## Environment variables
+
+See [Environment variables](env.md) for the supported environment variables,
+defaults, and safe setup guidance.
+
 ## Default install paths (placeholders)
 
 | Purpose | Example path | Notes |
