@@ -9,6 +9,7 @@ on:
       - synchronize
       - ready_for_review
       - labeled
+      - closed
   check_suite:
     types:
       - completed
@@ -58,10 +59,18 @@ jobs:
               return (pr.labels || []).some((label) => label.name === codexLabel);
             }
 
+            function isCodexAuthor(pr) {
+              return codexAuthors.has(pr.user?.login);
+            }
+
             function isCodexPullRequest(pr) {
               const isCodexBranch = pr.head?.ref?.startsWith(codexBranchPrefix);
-              const isCodexAuthor = codexAuthors.has(pr.user?.login);
-              return hasCodexLabel(pr) || isCodexBranch || isCodexAuthor;
+              return hasCodexLabel(pr) || isCodexBranch || isCodexAuthor(pr);
+            }
+
+            function shouldDeleteHeadRef(pr) {
+              const isCodexBranch = pr.head?.ref?.startsWith(codexBranchPrefix);
+              return isCodexBranch && (hasCodexLabel(pr) || isCodexAuthor(pr));
             }
 
             async function ensureCodexLabel(pr) {
@@ -102,6 +111,28 @@ jobs:
               );
             }
 
+            async function deleteHeadRef(pr) {
+              const headRef = pr.head?.ref;
+              if (!headRef) {
+                logSkip("head ref is missing");
+                return;
+              }
+              if (!shouldDeleteHeadRef(pr)) {
+                logSkip("head ref does not meet Codex deletion requirements");
+                return;
+              }
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${headRef}`,
+                });
+                core.info(`Deleted head ref: ${headRef}.`);
+              } catch (error) {
+                core.info(`Head ref deletion failed: ${error.message}`);
+              }
+            }
+
             let pr = null;
             if (context.eventName === "pull_request") {
               pr = context.payload.pull_request;
@@ -135,6 +166,11 @@ jobs:
             }
 
             await ensureCodexLabel(pr);
+
+            if (pr.merged || pr.merged_at) {
+              await deleteHeadRef(pr);
+              return;
+            }
 
             try {
               await enableAutoMerge(pr);
