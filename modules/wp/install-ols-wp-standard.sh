@@ -2237,6 +2237,210 @@ update_wp_config_define() {
   fi
 }
 
+ensure_wp_memory_limits() {
+  # [ANCHOR:WP_MEMORY_LIMITS]
+  local wp_config="${DOC_ROOT}/wp-config.php"
+
+  if [ ! -f "$wp_config" ]; then
+    log_warn "未找到 ${wp_config}，无法写入 WP 内存限制。"
+    return
+  fi
+
+  update_wp_config_define "$wp_config" "WP_MEMORY_LIMIT" "128M" "string"
+  update_wp_config_define "$wp_config" "WP_MAX_MEMORY_LIMIT" "256M" "string"
+
+  log_info "已设置 WordPress 内存限制（WP_MEMORY_LIMIT/WP_MAX_MEMORY_LIMIT）。"
+}
+
+detect_lsphp_conf_dir() {
+  local php_bin="/usr/local/lsws/lsphp83/bin/php"
+  local conf_dir=""
+
+  if [ -x "$php_bin" ]; then
+    conf_dir="$("$php_bin" -i 2>/dev/null | awk -F'=> ' '/Scan this dir for additional .ini files/ {print $2; exit}')"
+  fi
+
+  if [ -n "$conf_dir" ] && [ -d "$conf_dir" ]; then
+    printf "%s" "$conf_dir"
+    return 0
+  fi
+
+  conf_dir="/usr/local/lsws/lsphp83/etc/php/8.3/litespeed/conf.d"
+  if [ -d "$conf_dir" ]; then
+    printf "%s" "$conf_dir"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_lsphp_runtime_baseline() {
+  # [ANCHOR:LSWS_PHP_BASELINE]
+  local conf_dir
+  local ini_file
+  local desired
+  local updated=0
+
+  conf_dir="$(detect_lsphp_conf_dir)" || {
+    log_warn "未找到 lsphp conf.d 目录，跳过 PHP 运行时基线配置。"
+    return
+  }
+
+  ini_file="${conf_dir}/99-hz-wp-baseline.ini"
+  desired="$(cat <<'EOF'
+; hz-oneclick baseline overrides for WordPress
+upload_max_filesize = 32M
+post_max_size = 64M
+memory_limit = 256M
+EOF
+)"
+
+  if [ ! -f "$ini_file" ] || [ "$(cat "$ini_file" 2>/dev/null)" != "$desired" ]; then
+    printf "%s\n" "$desired" >"$ini_file"
+    updated=1
+    log_info "已写入 PHP 基线配置: ${ini_file}"
+  else
+    log_info "PHP 基线配置已存在，跳过。"
+  fi
+
+  if [ "$updated" -eq 1 ]; then
+    if systemctl reload lsws >/dev/null 2>&1; then
+      log_info "已重载 lsws 以应用 PHP 基线配置。"
+    else
+      systemctl restart lsws
+      log_info "已重启 lsws 以应用 PHP 基线配置。"
+    fi
+  fi
+}
+
+cleanup_default_wp_plugins() {
+  # [ANCHOR:WP_CLEAN_PLUGINS]
+  local plugins_dir="${DOC_ROOT}/wp-content/plugins"
+  local removed=0
+
+  if [ ! -d "$plugins_dir" ]; then
+    log_warn "未找到插件目录 ${plugins_dir}，跳过默认插件清理。"
+    return
+  fi
+
+  if [ -d "${plugins_dir}/akismet" ]; then
+    rm -rf "${plugins_dir}/akismet"
+    removed=1
+    log_info "已删除默认插件: Akismet"
+  fi
+
+  if [ -f "${plugins_dir}/hello.php" ]; then
+    rm -f "${plugins_dir}/hello.php"
+    removed=1
+    log_info "已删除默认插件: Hello Dolly"
+  fi
+
+  if [ "$removed" -eq 0 ]; then
+    log_info "默认插件已不存在，跳过清理。"
+  fi
+}
+
+cleanup_default_wp_themes() {
+  # [ANCHOR:WP_CLEAN_THEMES]
+  local themes_dir="${DOC_ROOT}/wp-content/themes"
+  local active_theme=""
+  local fallback_theme=""
+  local newest_time=0
+  local candidate
+  local mtime
+  local -a twenty_themes=()
+
+  if [ ! -d "$themes_dir" ]; then
+    log_warn "未找到主题目录 ${themes_dir}，跳过默认主题清理。"
+    return
+  fi
+
+  if command -v wp >/dev/null 2>&1; then
+    if wp core is-installed --path="${DOC_ROOT}" --skip-plugins --skip-themes >/dev/null 2>&1; then
+      active_theme="$(wp theme list --status=active --field=name --path="${DOC_ROOT}" --skip-plugins --skip-themes 2>/dev/null | head -n1)"
+    fi
+  fi
+
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] && twenty_themes+=("$candidate")
+  done < <(find "$themes_dir" -maxdepth 1 -mindepth 1 -type d -printf '%f\n' 2>/dev/null | grep -E '^twenty' || true)
+
+  if [ "${#twenty_themes[@]}" -eq 0 ]; then
+    log_info "未检测到 twenty* 默认主题，跳过清理。"
+    return
+  fi
+
+  for candidate in "${twenty_themes[@]}"; do
+    if [ -n "$active_theme" ] && [ "$candidate" = "$active_theme" ]; then
+      continue
+    fi
+    mtime="$(stat -c %Y "${themes_dir}/${candidate}" 2>/dev/null || echo 0)"
+    if [ "$mtime" -ge "$newest_time" ]; then
+      newest_time="$mtime"
+      fallback_theme="$candidate"
+    fi
+  done
+
+  for candidate in "${twenty_themes[@]}"; do
+    if [ -n "$active_theme" ] && [ "$candidate" = "$active_theme" ]; then
+      continue
+    fi
+    if [ -n "$fallback_theme" ] && [ "$candidate" = "$fallback_theme" ]; then
+      continue
+    fi
+    rm -rf "${themes_dir}/${candidate}"
+    log_info "已删除默认主题: ${candidate}"
+  done
+
+  if [ -n "$active_theme" ]; then
+    log_info "保留当前启用主题: ${active_theme}"
+  fi
+  if [ -n "$fallback_theme" ] && [ "$fallback_theme" != "$active_theme" ]; then
+    log_info "保留备用默认主题: ${fallback_theme}"
+  fi
+}
+
+prompt_lscwp_opt_in() {
+  # [ANCHOR:LSCWP_PROMPT]
+  local choice
+
+  LSCWP_ENABLED="no"
+  read -rp "是否启用 LiteSpeed Cache 插件（可选，默认不启用）？[y/N]: " choice
+  choice="${choice:-N}"
+  if [[ "$choice" =~ ^[Yy] ]]; then
+    LSCWP_ENABLED="yes"
+  fi
+}
+
+install_optional_lscwp() {
+  # [ANCHOR:LSCWP_INSTALL]
+  if [ "${LSCWP_ENABLED:-no}" != "yes" ]; then
+    return
+  fi
+
+  local wp_config="${DOC_ROOT}/wp-config.php"
+  if [ -f "$wp_config" ]; then
+    update_wp_config_define "$wp_config" "WP_CACHE" "1" "raw"
+  fi
+
+  if ! command -v wp >/dev/null 2>&1; then
+    log_warn "未找到 wp-cli，已跳过 LiteSpeed Cache 插件安装。"
+    return
+  fi
+
+  if ! wp core is-installed --path="${DOC_ROOT}" --skip-plugins --skip-themes >/dev/null 2>&1; then
+    log_warn "WordPress 尚未完成安装，无法自动安装 LiteSpeed Cache 插件。"
+    log_warn "可在安装后执行：wp plugin install litespeed-cache --activate --path=\"${DOC_ROOT}\""
+    return
+  fi
+
+  if wp plugin install litespeed-cache --activate --path="${DOC_ROOT}" --skip-plugins --skip-themes >/dev/null 2>&1; then
+    log_info "已安装并启用 LiteSpeed Cache 插件。"
+  else
+    log_warn "LiteSpeed Cache 插件安装失败，请稍后重试。"
+  fi
+}
+
 random_wp_salt() {
   LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()-_[]{}<>~`+=,.;:?' </dev/urandom | head -c 64
 }
@@ -3119,10 +3323,16 @@ install_frontend_only_flow() {
 
   install_packages
   setup_vhost_config
+  ensure_lsphp_runtime_baseline
   download_wordpress
+  cleanup_default_wp_plugins
+  cleanup_default_wp_themes
   prompt_site_size_limit
   setup_site_size_limit_monitor
   generate_wp_config
+  ensure_wp_memory_limits
+  prompt_lscwp_opt_in
+  install_optional_lscwp
   ensure_wp_redis_config
   fix_permissions
   env_self_check
@@ -3185,10 +3395,16 @@ install_standard_flow() {
 
   install_packages
   setup_vhost_config
+  ensure_lsphp_runtime_baseline
   download_wordpress
+  cleanup_default_wp_plugins
+  cleanup_default_wp_themes
   prompt_site_size_limit
   setup_site_size_limit_monitor
   generate_wp_config
+  ensure_wp_memory_limits
+  prompt_lscwp_opt_in
+  install_optional_lscwp
   fix_permissions
   env_self_check
   configure_ssl
@@ -3483,10 +3699,16 @@ install_hub_flow() {
 
   install_packages
   setup_vhost_config
+  ensure_lsphp_runtime_baseline
   download_wordpress
+  cleanup_default_wp_plugins
+  cleanup_default_wp_themes
   prompt_site_size_limit
   setup_site_size_limit_monitor
   generate_wp_config
+  ensure_wp_memory_limits
+  prompt_lscwp_opt_in
+  install_optional_lscwp
   fix_permissions
   env_self_check
   configure_ssl
