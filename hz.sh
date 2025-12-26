@@ -11,6 +11,8 @@ HZ_LANG=""
 HZ_BASELINE_FORMAT="${HZ_BASELINE_FORMAT:-text}"
 HZ_INSTALL_BASE_URL="${HZ_INSTALL_BASE_URL:-https://raw.githubusercontent.com/Hello-Pork-Belly/hz-oneclick/main}"
 HZ_INSTALL_BASE_URL="${HZ_INSTALL_BASE_URL%/}"
+HZ_WP_INSTALLER_SCRIPT="install-ols"
+HZ_WP_INSTALLER_SCRIPT+="-wp-standard.sh"
 
 baseline_menu_normalize_format() {
   local format
@@ -296,7 +298,7 @@ main_menu() {
           ;;
         13)
           echo "Installing LOMP/LNMP (DB / Redis 配置)..."
-          bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/install-ols-wp-standard.sh")
+          bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
           ;;
         0)
           echo "Bye~"
@@ -389,7 +391,7 @@ main_menu() {
           ;;
         13)
           echo "将安装 LOMP/LNMP (DB / Redis 配置)..."
-          bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/install-ols-wp-standard.sh")
+          bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
           ;;
         0)
           echo "再见～"

@@ -31,7 +31,7 @@ Defaults are shown when the script provides one. All examples use placeholders.
 | `BASELINE_WP_NO_PROMPT` | No | Empty | Skip WP prompts during baseline runs. | `modules/diagnostics/quick-triage.sh`, `lib/baseline_wp.sh` | `1` |
 | `BASELINE_LAST_REPORT_PATH` | No | Empty | Populated with the last baseline report path. | `lib/baseline_triage.sh`, `modules/diagnostics/quick-triage.sh` | `/tmp/hz-baseline-triage-abc.yourdomain.com-20240101-120000.txt` |
 | `BASELINE_LAST_REPORT_JSON_PATH` | No | Empty | Populated with the last baseline JSON report path. | `lib/baseline_triage.sh`, `tests/smoke.sh` | `/tmp/hz-baseline-triage-abc.yourdomain.com-20240101-120000.json` |
-| `LANG` | No | System default | Locale used by WP install script. | `modules/wp/install-ols-wp-standard.sh` | `en_US.UTF-8` |
+| `LANG` | No | System default | Locale used by WP install script. | `modules/wp` (standard WP installer script) | `en_US.UTF-8` |
 
 ### Test-only helpers
 
