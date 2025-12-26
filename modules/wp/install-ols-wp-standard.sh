@@ -3099,7 +3099,7 @@ configure_ssl() {
 
   echo "请选择 HTTPS 方案："
   echo "  1) 暂不配置 SSL，仅使用 HTTP 80（推荐先确认站点正常）"
-  echo "  2) 使用 Origin Certificate（手动粘贴证书和私钥）"
+  echo "  2) 使用 Origin Certificate（手动粘贴证书和 Private Key）"
   echo "  3) 使用 Let's Encrypt 自动申请证书（需域名已指向本机，灰云）"
   echo
 
@@ -3116,8 +3116,10 @@ configure_ssl() {
       local cert_file key_file ssl_prefix ssl_prefix_sanitized
       log_info "你选择了 Origin Certificate 模式。请先在 CDN/加速服务后台生成源站证书。"
       echo "默认证书路径: /usr/local/lsws/conf/ssl/${SITE_SLUG}.cert.pem"
-      echo "默认私钥路径: /usr/local/lsws/conf/ssl/${SITE_SLUG}.key.pem"
-      read -rp "请输入证书/私钥文件名前缀（默认: ${SITE_SLUG}，例如: example）: " ssl_prefix
+      echo "默认 Private Key 路径: /usr/local/lsws/conf/ssl/${SITE_SLUG}.key.pem"
+      echo "默认前缀: ${SITE_SLUG}（直接回车接受默认）"
+      echo "Default: ${SITE_SLUG} (Press Enter to accept default)"
+      read -rp "请输入证书/Private Key 文件名前缀（例如: example）: " ssl_prefix
       ssl_prefix="${ssl_prefix:-$SITE_SLUG}"
       ssl_prefix_sanitized="$(printf '%s' "$ssl_prefix" | tr -cd 'A-Za-z0-9._-')"
       if [ -z "$ssl_prefix_sanitized" ]; then
@@ -3126,11 +3128,11 @@ configure_ssl() {
       cert_file="/usr/local/lsws/conf/ssl/${ssl_prefix_sanitized}.cert.pem"
       key_file="/usr/local/lsws/conf/ssl/${ssl_prefix_sanitized}.key.pem"
       if [ -z "$cert_file" ] || [ -z "$key_file" ]; then
-        log_error "证书/私钥路径不能为空，跳过 SSL 配置。"; return
+        log_error "证书/Private Key 路径不能为空，跳过 SSL 配置。"; return
       fi
       mkdir -p "$(dirname "$cert_file")"
       echo; echo "请粘贴 Origin Certificate 内容，结束后 Ctrl+D："; cat >"$cert_file"
-      echo; echo "请粘贴对应私钥内容，结束后 Ctrl+D："; cat >"$key_file"
+      echo; echo "请粘贴对应 Private Key 内容，结束后 Ctrl+D："; cat >"$key_file"
       chmod 600 "$cert_file" "$key_file"
 
       if ! grep -q "^listener https" "$HTTPD_CONF"; then
