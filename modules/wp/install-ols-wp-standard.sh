@@ -2149,6 +2149,60 @@ update_wp_config_define() {
   fi
 }
 
+random_wp_salt() {
+  LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()-_[]{}<>~`+=,.;:?' </dev/urandom | head -c 64
+}
+
+fetch_wp_salts() {
+  local salts=""
+
+  if command -v curl >/dev/null 2>&1; then
+    salts="$(curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ 2>/dev/null || true)"
+    if [ -z "$salts" ]; then
+      log_warn "未能从 WordPress API 获取 salt，将使用本地随机值。"
+    fi
+  else
+    log_warn "未找到 curl，无法获取 WordPress salt，将使用本地随机值。"
+  fi
+
+  printf "%s" "$salts"
+}
+
+apply_wp_salts() {
+  local wp_config="$1"
+  local salts="$2"
+  local fallback_used=0
+  local key value
+  local keys=(
+    AUTH_KEY
+    SECURE_AUTH_KEY
+    LOGGED_IN_KEY
+    NONCE_KEY
+    AUTH_SALT
+    SECURE_AUTH_SALT
+    LOGGED_IN_SALT
+    NONCE_SALT
+  )
+
+  for key in "${keys[@]}"; do
+    value=""
+    if [ -n "$salts" ]; then
+      value="$(printf '%s\n' "$salts" | awk -F"'" -v target="$key" '$2==target {print $4; exit}')"
+    fi
+    if [ -z "$value" ]; then
+      value="$(random_wp_salt)"
+      fallback_used=1
+    fi
+    update_wp_config_define "$wp_config" "$key" "$value" "string"
+  done
+
+  if [ "$fallback_used" -eq 1 ]; then
+    log_warn "Salt 生成使用本地随机值。"
+  else
+    log_info "已写入 WordPress 安全密钥（salt）。"
+  fi
+}
+
 ensure_wp_redis_config() {
   # [ANCHOR:WP_REDIS_CONFIG]
   if [ "${REDIS_ENABLED:-no}" != "yes" ]; then
@@ -2459,8 +2513,12 @@ generate_wp_config() {
   local sample="${DOC_ROOT}/wp-config-sample.php"
 
   if [ -f "$wp_config" ]; then
-    log_warn "检测到已存在 wp-config.php，将不覆盖。"
-    return
+    local overwrite
+    read -rp "检测到已存在 wp-config.php，是否覆盖？[y/N]: " overwrite
+    if [[ ! "$overwrite" =~ ^[Yy]$ ]]; then
+      log_warn "保留现有 wp-config.php，跳过生成。"
+      return
+    fi
   fi
 
   [ -f "$sample" ] || { log_error "未找到 ${sample}，无法生成 wp-config.php。"; exit 1; }
@@ -2480,6 +2538,10 @@ generate_wp_config() {
   sed -i "s|username_here|${DB_USER}|" "$wp_config"
   sed -i "s|password_here|${esc_db_password}|" "$wp_config"
   sed -i "s|localhost|${db_host_value}|" "$wp_config"
+
+  local salt_block
+  salt_block="$(fetch_wp_salts)"
+  apply_wp_salts "$wp_config" "$salt_block"
 
   log_info "已根据输入生成 wp-config.php（DB_* 信息已写入）。"
 }
