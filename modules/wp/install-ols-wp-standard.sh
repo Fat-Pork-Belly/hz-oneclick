@@ -1596,6 +1596,9 @@ test_db_connection() {
       log_error "DNS 解析失败：${host}"
       log_warn "可能原因：域名未解析、解析记录未生效、或本机 DNS 无法访问。"
       log_warn "建议检查：域名解析是否指向正确内网/隧道出口、以及本机 /etc/resolv.conf。"
+      if [ "${LITE_PREFLIGHT_MODE:-0}" -eq 1 ]; then
+        print_lite_db_host_fix_guide
+      fi
       return 1
     fi
   fi
@@ -1604,6 +1607,10 @@ test_db_connection() {
   if ! tcp_err="$(timeout 3 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" 2>&1 >/dev/null)"; then
     log_error "无法连接到 ${host}:${port}（TCP 不可达）。"
     log_warn "可能原因：防火墙/安全组未放行端口、服务未监听、内网或隧道未连接、地址填写错误。"
+    if [ "${LITE_PREFLIGHT_MODE:-0}" -eq 1 ]; then
+      log_warn "补充提示：端口未对外暴露、bind-address 限制、或安全组/UFW 未放行也会导致失败。"
+      print_lite_db_host_fix_guide
+    fi
     [ -n "$tcp_err" ] && log_warn "系统提示: ${tcp_err}"
     return 1
   fi
@@ -1623,12 +1630,18 @@ test_db_connection() {
   log_error "数据库认证失败：${DB_USER}@${host}:${port}"
   if echo "$mysql_err" | grep -qi "Access denied"; then
     log_warn "可能原因：用户名/密码错误，或该用户未被授权从此主机连接。"
+    if [ "${LITE_PREFLIGHT_MODE:-0}" -eq 1 ]; then
+      log_warn "常见情况：账号存在但仅允许 'user'@'%' 或 'user'@'<CLIENT_OVERLAY_IP>'，与当前来源不匹配。"
+    fi
   elif echo "$mysql_err" | grep -qi "Unknown MySQL server host\|Unknown host"; then
     log_warn "可能原因：DB Host 无法解析，或地址拼写有误。"
   elif echo "$mysql_err" | grep -qi "Can't connect to MySQL server"; then
     log_warn "可能原因：端口未放行/服务未启动/绑定地址限制。"
   else
     [ -n "$mysql_err" ] && log_warn "系统提示: ${mysql_err}"
+  fi
+  if [ "${LITE_PREFLIGHT_MODE:-0}" -eq 1 ]; then
+    print_lite_db_host_fix_guide
   fi
   return 1
 }
@@ -1825,6 +1838,29 @@ print_lite_preflight_summary() {
   if [ "${REDIS_ENABLED:-no}" = "yes" ]; then
     echo "Redis 密码:  ${redis_pass_status}"
   fi
+  echo
+}
+
+print_lite_db_host_fix_guide() {
+  # [ANCHOR:LITE_DB_HOST_FIX_GUIDE]
+  echo
+  echo -e "${CYAN}---- DB Host-side Fix Guide（仅供排错参考） ----${NC}"
+  echo "可让 DB 管理员在数据库主机上执行（替换占位符）："
+  cat <<'EOF'
+SQL 模板：
+  CREATE DATABASE IF NOT EXISTS `<DB_NAME>`;
+  CREATE USER '<DB_USER>'@'%' IDENTIFIED BY '<DB_PASSWORD>';
+  -- 或者使用更严格的来源限制：'<DB_USER>'@'<CLIENT_OVERLAY_IP>'
+  GRANT ALL PRIVILEGES ON `<DB_NAME>`.* TO '<DB_USER>'@'%';
+  FLUSH PRIVILEGES;
+
+验证：
+  SHOW DATABASES LIKE '<DB_NAME>';
+  SELECT User,Host FROM mysql.user WHERE User='<DB_USER>';
+  SHOW GRANTS FOR '<DB_USER>'@'<HOST>'; -- Host 必须与 mysql.user 实际记录匹配（可能是 %）
+EOF
+  echo
+  echo "Docker MariaDB 提示：容器需发布 3306 端口到预期接口（例如 0.0.0.0 或 <CLIENT_OVERLAY_IP>），并确保防火墙/UFW 放行。"
   echo
 }
 
@@ -2643,6 +2679,7 @@ install_frontend_only_flow() {
 
   require_root
   check_os
+  LITE_PREFLIGHT_MODE=1
   log_step "LOMP-Lite (Frontend-only): external DB/Redis"
   prompt_site_info
 
@@ -2726,6 +2763,7 @@ install_standard_flow() {
 
   require_root
   check_os
+  LITE_PREFLIGHT_MODE=0
   prompt_site_info
 
   # 循环输入 DB 信息并测试连通性，直到成功或用户选择退出
