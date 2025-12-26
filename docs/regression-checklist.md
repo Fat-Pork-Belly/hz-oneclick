@@ -13,6 +13,7 @@
   - 选择 13 后应进入档位选择子菜单。
   - LOMP-Lite / LOMP-Standard 会启动 WordPress 安装流程。
   - 其余档位显示 “Coming soon”/“敬请期待” 并安全返回主菜单。
+  - Lite/Standard 安装后应自动生成 wp-config.php，不再需要通过浏览器 setup-config.php 配置数据库。
 
 - **低内存节点 (<4G RAM)**
   - 推荐档位应为 **Lite（Frontend-only）**，理由需展示为“内存 <4G”并提示仅部署前端。
