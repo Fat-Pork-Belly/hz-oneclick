@@ -10,10 +10,14 @@
 - **Loopback hosts 标记**：使用 `rg` 确认脚本中存在 `# hz-oneclick loopback begin` / `# hz-oneclick loopback end` 标记字符串。
 - **中性输出**：新增/调整的 loopback/hosts 修复提示保持中性描述，不出现云厂商名称。
 - **菜单标识**：进入中英文菜单确认展示 Version/Build 与 Source/Base URL 行，确保与本次构建一致。
+- **文案回归**：执行 `rg` 检查旧文案已移除，例如：
+  - `rg -n "ols-wp（|ols-wp \\(DB" hz.sh docs/regression-checklist.md modules/wp/install-ols-wp-standard.sh || true`
+  - `rg -n "私钥内容" modules/wp/install-ols-wp-standard.sh && exit 1 || true`
+  - `rg -n "Private Key" modules/wp/install-ols-wp-standard.sh`
 - **DB Grant 源地址**：使用 `rg` 确认脚本中不存在硬编码的 DB 用户来源 IP/Host（例如 `100.x.x.x`）。
 
 ## 场景回归
-- **安装菜单 13（LOMP/LNMP 档位选择）**
+- **安装菜单 13（LOMP/LNMP（DB / Redis 配置）档位选择）**
   - 选择 13 后应进入档位选择子菜单。
   - LOMP-Lite / LOMP-Standard 会启动 WordPress 安装流程。
   - 其余档位显示 “Coming soon”/“敬请期待” 并安全返回主菜单。

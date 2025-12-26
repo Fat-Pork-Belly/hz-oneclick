@@ -350,7 +350,7 @@ main_menu() {
       green  " 10) rkhunter (rootkit / trojan scanner)"
       cyan  "  11) rkhunter (daily check / optional mail alert)"
       green " 12) Baseline Diagnostics"
-      cyan  "  13) LOMP/LNMP (DB / Redis 配置)"
+      cyan  "  13) LOMP/LNMP (DB / Redis provisioning)"
       yellow "  0) Exit"
       green "  r) Return to language selection / 返回语言选择 "
       echo
@@ -443,7 +443,7 @@ main_menu() {
       green "  10) rkhunter（系统后门 / 木马检测）"
       cyan  "  11) rkhunter 定时扫描(报错邮件通知 /日志维护）"
       green "  12) 基础诊断（Baseline Diagnostics）"
-      cyan  "  13) LOMP/LNMP (DB / Redis 配置)"
+      cyan  "  13) LOMP/LNMP（DB / Redis 配置）"
       yellow "  0) 退出"
       yellow "  r) 返回语言选择 / Return to language selection"
       echo
