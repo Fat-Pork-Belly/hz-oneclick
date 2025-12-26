@@ -227,7 +227,6 @@ main_menu() {
     if [ "$HZ_LANG" = "en" ]; then
       # ===== English menu =====
       cyan  "hz-oneclick - HorizonTech Installer (preview)"
-      green "hz-oneclick - HorizonTech one-click installer (preview)"
       cyan  "Version: ${HZ_ONECLICK_VERSION} (${HZ_ONECLICK_BUILD})"
       green "Source: ${HZ_INSTALL_BASE_URL}"
       echo
@@ -322,7 +321,6 @@ main_menu() {
     else
       # ===== 中文菜单 =====
       cyan  "hz-oneclick - HorizonTech 一键安装入口（预览版）"
-      green "hz-oneclick - HorizonTech 一键安装入口（预览版）"
       cyan  "版本: ${HZ_ONECLICK_VERSION} (${HZ_ONECLICK_BUILD})"
       green "来源: ${HZ_INSTALL_BASE_URL}"
       echo
