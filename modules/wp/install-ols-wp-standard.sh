@@ -25,7 +25,7 @@ BASELINE_TRIAGE_LIB="${REPO_ROOT}/lib/baseline_triage.sh"
 
 cd /
 
-# install-ols-wp-standard.sh
+# install-lomp-lnmp-standard.sh
 # 更新记录:
 # - v0.9:
 #   - 完成"彻底移除本机 OLS""按 slug 清理站点"后，不再直接退出脚本，
@@ -343,7 +343,7 @@ run_lomp_baseline_diagnostics() {
       echo "  6) Step20-7 Proxy/CDN (521/TLS)"
       echo "  7) Step20-8 TLS/CERT (SNI/SAN/chain/expiry)"
       echo "  8) Step20-9 WP/App (runtime + HTTP)"
-      echo "  9) Step20-10 LSWS/OLS (service/port/config/logs)"
+      echo "  9) Step20-10 LOMP/LNMP Web (service/port/config/logs)"
       echo " 10) Step20-11 Cache/Redis/OPcache"
       echo " 11) Step20-12 System/Resource (CPU/RAM/Disk/Swap/Logs)"
       echo "  0) Return to main menu"
@@ -360,7 +360,7 @@ run_lomp_baseline_diagnostics() {
       echo "  6) Step20-7 反代/CDN（521/TLS）"
       echo "  7) Step20-8 TLS/证书（SNI/SAN/链/到期）"
       echo "  8) Step20-9 WP/App（运行态 + HTTP）"
-      echo "  9) Step20-10 LSWS/OLS（服务/端口/配置/日志）"
+      echo "  9) Step20-10 LOMP/LNMP Web（服务/端口/配置/日志）"
       echo " 10) Step20-11 Cache/Redis/OPcache"
       echo " 11) Step20-12 System/Resource（CPU/内存/磁盘/Swap/日志）"
       echo "  0) 返回主菜单"
@@ -573,9 +573,9 @@ run_lomp_baseline_diagnostics() {
         baseline_init
         domain="${SITE_DOMAIN:-}"
         if [ "$lang" = "en" ]; then
-          read -rp "Enter domain for Host header (optional, e.g., demo.example.com): " input_domain
+    read -rp "Enter domain for Host header (optional, e.g., abc.yourdomain.com): " input_domain
         else
-          read -rp "请输入 Host 头域名（可留空，例如 demo.example.com）: " input_domain
+    read -rp "请输入 Host 头域名（可留空，例如 abc.yourdomain.com）: " input_domain
         fi
         input_domain="${input_domain//[[:space:]]/}"
         if [ -n "$input_domain" ]; then
@@ -743,7 +743,7 @@ run_lomp_baseline_diagnostics() {
         if declare -F baseline_lsws_run >/dev/null 2>&1; then
           baseline_lsws_run "$domain" "$lang"
         else
-          baseline_add_result "LSWS/OLS" "LSWS_BASELINE" "WARN" "module_missing" "baseline_lsws.sh not loaded" ""
+          baseline_add_result "LOMP/LNMP Web" "LSWS_BASELINE" "WARN" "module_missing" "baseline_lsws.sh not loaded" ""
         fi
 
         baseline_print_summary
@@ -1129,7 +1129,7 @@ show_main_menu() {
   echo "  6) LNMP-Hub（占位/仅提示）"
   echo
   echo "维护 / 清理："
-  echo "  7) 清理本机 OLS / WordPress（危险操作，慎用）"
+  echo "  7) 清理本机 LOMP/LNMP / WordPress（危险操作，慎用）"
   echo "  8) 清理数据库 / Redis（需在 DB/Redis 所在机器执行）"
   echo "  9) Baseline 诊断 / 验收"
   echo "  0) 退出脚本"
@@ -1162,15 +1162,15 @@ show_main_menu() {
 }
 
 ################################
-# 3: 清理本机 OLS / WordPress #
+# 3: 清理本机 LOMP/LNMP / WordPress #
 ################################
 
 cleanup_lomp_menu() {
   # [ANCHOR:CLEANUP_MENU]
-  echo -e "${YELLOW}[危险]${NC} 本菜单会在本机删除 OLS 或站点，请确认已备份。"
+  echo -e "${YELLOW}[危险]${NC} 本菜单会在本机删除 LOMP/LNMP 或站点，请确认已备份。"
   echo
-  echo "3) 清理本机 OLS / WordPress："
-  echo "  1) 彻底移除本机 OLS（卸载 openlitespeed + lsphp83*，删除 /usr/local/lsws）"
+  echo "3) 清理本机 LOMP/LNMP / WordPress："
+  echo "  1) 彻底移除本机 LOMP Web（卸载 openlitespeed + lsphp83*，删除 /usr/local/lsws）"
   echo "  2) 按 slug 清理本机某个 WordPress 站点（删除 vhost + /var/www/<slug>）"
   echo "  3) 返回上一层"
   echo "  0) 退出脚本"
@@ -1193,7 +1193,7 @@ cleanup_lomp_menu() {
 
 remove_ols_global() {
   # [ANCHOR:REMOVE_OLS_GLOBAL]
-  echo -e "${YELLOW}[警告]${NC} 即将 ${BOLD}彻底移除本机 OLS${NC}"
+  echo -e "${YELLOW}[警告]${NC} 即将 ${BOLD}彻底移除本机 LOMP Web${NC}"
   echo "本操作将："
   echo "  - systemctl 停止/禁用 lsws;"
   echo "  - apt remove/purge openlitespeed 与 lsphp83 相关组件;"
@@ -1201,14 +1201,14 @@ remove_ols_global() {
   echo "  - 不会自动删除 /var/www 下的站点目录。"
   echo
   local c
-  read -rp "如需继续，请输入大写 'REMOVE_OLS' 确认: " c
-  if [ "$c" != "REMOVE_OLS" ]; then
+  read -rp "如需继续，请输入大写 'REMOVE_LOMP' 确认: " c
+  if [ "$c" != "REMOVE_LOMP" ]; then
     log_warn "确认字符串不匹配，已取消。"
     cleanup_lomp_menu
     return
   fi
 
-  log_step "停止并卸载 OpenLiteSpeed"
+  log_step "停止并卸载 LOMP Web（OpenLiteSpeed）"
 
   if systemctl list-unit-files | grep -q '^lsws\.service'; then
     systemctl stop lsws || true
@@ -1227,8 +1227,8 @@ remove_ols_global() {
     rm -rf /usr/local/lsws
   fi
 
-  log_info "本机 OLS 卸载流程已完成。"
-  read -rp "按回车返回\"清理本机 OLS / WordPress\"菜单..." _
+  log_info "本机 LOMP Web 卸载流程已完成。"
+  read -rp "按回车返回\"清理本机 LOMP/LNMP / WordPress\"菜单..." _
   cleanup_lomp_menu
   return
 }
@@ -1239,8 +1239,8 @@ remove_wp_by_slug() {
   local HTTPD_CONF="${LSWS_ROOT}/conf/httpd_config.conf"
 
   if [ ! -d "$LSWS_ROOT" ] || [ ! -f "$HTTPD_CONF" ]; then
-    log_error "未找到 ${LSWS_ROOT} 或 ${HTTPD_CONF}，似乎尚未安装 OLS。"
-    read -rp "按回车返回\"清理本机 OLS / WordPress\"菜单..." _
+    log_error "未找到 ${LSWS_ROOT} 或 ${HTTPD_CONF}，似乎尚未安装 LOMP Web。"
+    read -rp "按回车返回\"清理本机 LOMP/LNMP / WordPress\"菜单..." _
     cleanup_lomp_menu
     return
   fi
@@ -1315,7 +1315,7 @@ remove_wp_by_slug() {
   fi
 
   log_info "按 slug 清理站点完成。"
-  read -rp "按回车返回\"清理本机 OLS / WordPress\"菜单..." _
+  read -rp "按回车返回\"清理本机 LOMP/LNMP / WordPress\"菜单..." _
   cleanup_lomp_menu
   return
 }
@@ -1489,7 +1489,7 @@ cleanup_redis_interactive() {
 }
 
 #######################
-# 安装 OLS + WP 流程  #
+# 安装 LOMP/LNMP + WordPress 流程  #
 #######################
 
 prompt_site_info() {
@@ -1497,7 +1497,7 @@ prompt_site_info() {
   echo
   echo "================ 站点基础信息 ================"
   while :; do
-    read -rp "请输入站点域名（例如: example.com 或 blog.example.com）: " SITE_DOMAIN
+    read -rp "请输入站点域名（例如: abc.yourdomain.com）: " SITE_DOMAIN
     [ -n "$SITE_DOMAIN" ] && break
     log_warn "域名不能为空。"
   done
@@ -1625,16 +1625,16 @@ test_db_connection() {
 
 install_packages() {
   # [ANCHOR:INSTALL_OLS]
-  log_step "安装 / 检查 OpenLiteSpeed 与 PHP 组件"
+  log_step "安装 / 检查 LOMP Web/PHP 组件（OpenLiteSpeed）"
 
   apt update
   apt install -y software-properties-common curl
 
   if ! dpkg -l | grep -q '^ii[[:space:]]\+openlitespeed[[:space:]]'; then
-    log_info "安装 openlitespeed..."
+    log_info "安装 LOMP Web（openlitespeed）..."
     apt install -y openlitespeed
   else
-    log_info "检测到 openlitespeed 已安装，跳过。"
+    log_info "检测到 LOMP Web（openlitespeed）已安装，跳过。"
   fi
 
   # [ANCHOR:INSTALL_PHP]
@@ -1651,7 +1651,7 @@ install_packages() {
 
 setup_vhost_config() {
   # [ANCHOR:SETUP_VHOST_CONFIG]
-  log_step "配置 OpenLiteSpeed Virtual Host"
+  log_step "配置 LOMP Web Virtual Host（OpenLiteSpeed）"
 
   local LSWS_ROOT="/usr/local/lsws"
   local HTTPD_CONF="${LSWS_ROOT}/conf/httpd_config.conf"
@@ -1659,7 +1659,7 @@ setup_vhost_config() {
   local VH_CONF_FILE="${VH_CONF_DIR}/vhconf.conf"
   local VH_ROOT="/var/www/${SITE_SLUG}"
 
-  [ -d "$LSWS_ROOT" ] || { log_error "未找到 ${LSWS_ROOT}，请确认 OLS 安装成功。"; exit 1; }
+  [ -d "$LSWS_ROOT" ] || { log_error "未找到 ${LSWS_ROOT}，请确认 LOMP Web 安装成功。"; exit 1; }
 
   mkdir -p "$VH_CONF_DIR" "$DOC_ROOT" "${VH_ROOT}/logs"
 
@@ -1951,11 +1951,11 @@ ensure_wp_https_urls() {
   if [ -z "$domain" ]; then
     log_warn "未检测到域名，无法自动设置 WordPress HTTPS 地址。"
     echo "  可在安装后执行："
-    echo "  wp option update home \"https://YOUR_DOMAIN\" --path=\"${DOC_ROOT}\" --skip-plugins --skip-themes"
-    echo "  wp option update siteurl \"https://YOUR_DOMAIN\" --path=\"${DOC_ROOT}\" --skip-plugins --skip-themes"
+    echo "  wp option update home \"https://abc.yourdomain.com\" --path=\"${DOC_ROOT}\" --skip-plugins --skip-themes"
+    echo "  wp option update siteurl \"https://abc.yourdomain.com\" --path=\"${DOC_ROOT}\" --skip-plugins --skip-themes"
     echo "  或在 ${DOC_ROOT}/wp-config.php 中加入："
-    echo "  define('WP_HOME', 'https://YOUR_DOMAIN');"
-    echo "  define('WP_SITEURL', 'https://YOUR_DOMAIN');"
+    echo "  define('WP_HOME', 'https://abc.yourdomain.com');"
+    echo "  define('WP_SITEURL', 'https://abc.yourdomain.com');"
     echo "HTTPS URL 更新: 需要手动设置"
     return
   fi
@@ -2289,7 +2289,7 @@ print_https_post_install() {
     echo "    - 确认 80/443 对公网可达，DNS 已正确解析。"
     echo "    - 查看证书签发日志与续期任务是否正常。"
   fi
-  echo "  - 示例：访问 https://example.com 验证浏览器锁标识。"
+  echo "  - 示例：访问 https://abc.yourdomain.com 验证浏览器锁标识。"
 
   echo
   echo -e "${CYAN}HTTPS/SSL 自动检查（不影响安装）:${NC}"
