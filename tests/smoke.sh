@@ -650,6 +650,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
   echo "[smoke] baseline_triage exit-code regression"
   warn_output_file="$(mktemp)"
   (
+    # shellcheck disable=SC2317 # invoked indirectly by baseline_triage_run
     baseline_triage__run_groups() {
       baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
       return 2
@@ -687,6 +688,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
       expected_warn_strict=1
     fi
 
+    # shellcheck disable=SC2317 # invoked indirectly by baseline_triage_run
     baseline_triage__run_groups() {
       baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
       return 0
@@ -698,6 +700,7 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
     HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
     warn_exit_strict=$?
 
+    # shellcheck disable=SC2317 # invoked indirectly by baseline_triage_run
     baseline_triage__run_groups() {
       baseline_add_result "TEST" "test_fail" "FAIL" "TEST_FAIL" "fail detected" "fix failure"
       return 0

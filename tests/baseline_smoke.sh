@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=tests/baseline-wrapper.sh
+source "${SCRIPT_DIR}/baseline-wrapper.sh"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 SCHEMA_PATH="${REPO_ROOT}/docs/schema/baseline_diagnostics.schema.json"
 SMOKE_MODE=0
 timeout_available=0
@@ -233,16 +236,17 @@ else
     run_step "baseline_lsws_run" baseline_lsws_run "" "en"
   fi
   if declare -F baseline_cache_run >/dev/null 2>&1; then
-    run_step "baseline_cache_run" bash -c '
+    run_step "baseline_cache_run" bash -c "$(cat <<'BASH'
       tmp_wp="$(mktemp -d)"
       mkdir -p "$tmp_wp/wp-content"
-      cat > "$tmp_wp/wp-config.php" <<'"'"'EOF'"'"'
+      cat > "$tmp_wp/wp-config.php" <<'EOF'
 <?php
 define('WP_CACHE', true);
 EOF
       baseline_cache_run "$tmp_wp" "en"
       rm -rf "$tmp_wp"
-    '
+    BASH
+)"
   fi
   if declare -F baseline_sys_run >/dev/null 2>&1; then
     run_step "baseline_sys_run" baseline_sys_run "en"
