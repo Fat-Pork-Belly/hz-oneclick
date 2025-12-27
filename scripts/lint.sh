@@ -53,7 +53,11 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck_status=$?
   set -e
   if [[ $shellcheck_status -ne 0 ]]; then
-    echo "ERROR: ShellCheck reported findings"
+    if [[ $strict -eq 1 ]]; then
+      echo "ERROR: ShellCheck reported findings"
+    else
+      echo "WARN: ShellCheck reported findings"
+    fi
   fi
 else
   shellcheck_status=127
@@ -73,7 +77,11 @@ if command -v shfmt >/dev/null 2>&1; then
   shfmt_status=$?
   set -e
   if [[ $shfmt_status -ne 0 ]]; then
-    echo "ERROR: shfmt reported formatting differences"
+    if [[ $strict -eq 1 ]]; then
+      echo "ERROR: shfmt reported formatting differences"
+    else
+      echo "WARN: shfmt reported formatting differences"
+    fi
   fi
 else
   shfmt_status=127
@@ -87,14 +95,11 @@ fi
 echo ""
 echo "Summary: bash -n=${bash_status} shellcheck=${shellcheck_status} shfmt=${shfmt_status}"
 
-if [[ $shellcheck_status -ne 0 && $shellcheck_status -ne 127 ]]; then
-  exit 1
-fi
-if [[ $shfmt_status -ne 0 && $shfmt_status -ne 127 ]]; then
-  exit 1
-fi
 if [[ $strict -eq 1 ]]; then
-  if [[ $shellcheck_status -eq 127 || $shfmt_status -eq 127 ]]; then
+  if [[ $shellcheck_status -ne 0 ]]; then
+    exit 1
+  fi
+  if [[ $shfmt_status -ne 0 ]]; then
     exit 1
   fi
 fi

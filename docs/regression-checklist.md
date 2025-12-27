@@ -9,6 +9,12 @@
   - `bash scripts/lint.sh`
   - `bash scripts/lint.sh --strict`
   - 说明：CI 使用严格模式；本地默认模式在缺少 shellcheck/shfmt 时仅告警并继续。
+- **Local dev (Makefile)**：
+  - `make help`
+  - `make lint`
+  - `make lint-strict`
+  - `make smoke`
+  - `make ci`
 - **禁止词校验**：在脚本的用户输出（`echo` / `printf` 文案）中 grep，确保不含具体云厂商名称；提示关于解析、端口、入站/出站规则需保持中性描述。
 - **Loopback 预检**：确认标准 WP 安装脚本包含本机 HTTPS loopback/REST API 预检，且使用 `openssl s_client` + `curl --resolve` 进行 SNI/回环检查。
 - **Loopback hosts 标记**：使用 `rg` 确认脚本中存在 `# hz-oneclick loopback begin` / `# hz-oneclick loopback end` 标记字符串。
