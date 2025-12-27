@@ -23,4 +23,10 @@ The smoke runner (`tests/smoke.sh`) writes report files for quick triage:
 
 By default, these are created under a temp directory such as `/tmp/hz-smoke-XXXXXXXX/`. You can also override the directory by setting `HZ_SMOKE_REPORT_DIR` before running `make smoke`.
 
+In CI, the workflows set `HZ_SMOKE_REPORT_DIR` explicitly before running `tests/smoke.sh` so the report paths are deterministic for artifact collection.
+
 In CI, the smoke step uploads artifacts named `smoke-triage-reports`, which include the text/JSON reports plus any `/tmp/hz-baseline-triage-*.txt` and `/tmp/hz-baseline-triage-*.json` files produced by the smoke suite.
+
+## Repo hygiene
+- Do not add new helper files unless necessary; prefer extending existing scripts.
+- Keep dev/CI helper files under `.github/`, `scripts/`, or `tests/` only.

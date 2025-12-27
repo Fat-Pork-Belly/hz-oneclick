@@ -28,7 +28,7 @@ bash .github/scripts/run_ci_locally.sh
 ```
 
 ```bash
-bash .github/scripts/lint_bash.sh
+bash scripts/lint.sh --strict
 ```
 
 ```bash

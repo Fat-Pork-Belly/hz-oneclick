@@ -50,7 +50,7 @@ set -e
 echo ""
 echo "==> Bash lint"
 set +e
-bash .github/scripts/lint_bash.sh
+bash scripts/lint.sh --strict
 lint_status=$?
 set -e
 
@@ -108,9 +108,9 @@ else
   echo "- repo_integrity: FAIL (exit=${integrity_status})"
 fi
 if [ "$lint_status" -eq 0 ]; then
-  echo "- lint_bash: PASS"
+  echo "- lint: PASS"
 else
-  echo "- lint_bash: FAIL (exit=${lint_status})"
+  echo "- lint: FAIL (exit=${lint_status})"
 fi
 if [ "$selftest_status" -eq 0 ]; then
   echo "- smoke_selftest: PASS"
