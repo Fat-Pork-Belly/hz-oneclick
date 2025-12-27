@@ -27,17 +27,17 @@ fi
 echo ""
 echo "==> ShellCheck"
 shellcheck_status=0
-if command -v shellcheck >/dev/null 2>&1; then
-  set +e
-  shellcheck -x "${files[@]}"
-  shellcheck_status=$?
-  set -e
-  if [[ $shellcheck_status -ne 0 ]]; then
-    echo "WARN: ShellCheck reported findings"
-  fi
-else
-  echo "WARN: ShellCheck not installed; skipping"
-  shellcheck_status=127
+if ! command -v shellcheck >/dev/null 2>&1; then
+  echo "ERROR: ShellCheck not installed"
+  exit 1
+fi
+set +e
+shellcheck -x "${files[@]}"
+shellcheck_status=$?
+set -e
+if [[ $shellcheck_status -ne 0 ]]; then
+  echo "ERROR: ShellCheck reported findings"
+  exit 1
 fi
 
 echo ""
