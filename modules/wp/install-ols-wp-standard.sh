@@ -223,8 +223,14 @@ require_root() {
 ensure_wp_cli() {
   # [ANCHOR:WP_CLI_SETUP]
   if command -v wp >/dev/null 2>&1; then
-    log_info "检测到 wp-cli：$(command -v wp)"
-    return 0
+    if ! ensure_php_cmd_for_wpcli; then
+      return 1
+    fi
+    if wp --info >/dev/null 2>&1; then
+      log_info "检测到 wp-cli：$(command -v wp)"
+      return 0
+    fi
+    log_warn "检测到 wp-cli，但无法运行，尝试重新安装。"
   fi
 
   log_step "安装 wp-cli"
@@ -248,6 +254,9 @@ ensure_wp_cli() {
   fi
 
   if command -v wp >/dev/null 2>&1; then
+    if ! ensure_php_cmd_for_wpcli; then
+      return 1
+    fi
     if wp --info >/dev/null 2>&1; then
       log_info "wp-cli 已安装。"
       return 0
@@ -255,6 +264,40 @@ ensure_wp_cli() {
   fi
 
   log_error "wp-cli 安装失败，请手动检查 /usr/local/bin/wp。"
+  return 1
+}
+
+ensure_php_cmd_for_wpcli() {
+  local php_bin=""
+  local created=0
+
+  if command -v php >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ -n "${LSPHP_BIN:-}" ] && [ -x "$LSPHP_BIN" ]; then
+    php_bin="$LSPHP_BIN"
+  else
+    php_bin="$(detect_lsphp_bin 2>/dev/null || true)"
+  fi
+
+  if [ -n "$php_bin" ] && [ -x "$php_bin" ]; then
+    if [ ! -e /usr/local/bin/php ]; then
+      ln -s "$php_bin" /usr/local/bin/php 2>/dev/null && created=1
+    fi
+    if [ ! -e /usr/bin/php ] && [ -x /usr/local/bin/php ]; then
+      ln -s /usr/local/bin/php /usr/bin/php 2>/dev/null && created=1
+    fi
+    if [ "$created" -eq 1 ]; then
+      log_info "Created php symlink for wp-cli (${php_bin})."
+    fi
+  fi
+
+  if command -v php >/dev/null 2>&1 && php -v >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log_error "未检测到可用的 php 命令，wp-cli 无法运行。请确认已安装 LSPHP 并提供 php 可执行文件。"
   return 1
 }
 
