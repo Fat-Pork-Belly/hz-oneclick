@@ -101,7 +101,13 @@ wp_available=0
 hard_failures_enabled=1
 if command -v wp >/dev/null 2>&1 && [ -n "$doc_root" ] && [ -d "$doc_root" ]; then
   wp_available=1
+  log_ok "wp-cli available: $(command -v wp)"
 else
+  if command -v wp >/dev/null 2>&1; then
+    log_warn "wp-cli available but doc root missing; skipping WP runtime checks."
+  else
+    log_warn "wp-cli not found; skipping WP runtime checks."
+  fi
   hard_failures_enabled=0
 fi
 
@@ -160,7 +166,16 @@ if [ "$wp_installed" -eq 1 ]; then
     fi
   done
 
-  if printf '%s\n' "${installed_plugins[@]:-}" | grep -qx "litespeed-cache" && [ "${#extra_installed[@]}" -eq 0 ]; then
+  lscwp_installed=0
+  lscwp_active=0
+  if printf '%s\n' "${installed_plugins[@]:-}" | grep -qx "litespeed-cache"; then
+    lscwp_installed=1
+  fi
+  if printf '%s\n' "${active_plugins[@]:-}" | grep -qx "litespeed-cache"; then
+    lscwp_active=1
+  fi
+
+  if [ "$lscwp_installed" -eq 1 ] && [ "${#extra_installed[@]}" -eq 0 ]; then
     log_ok "Plugins installed: ${installed_list:-none}."
   else
     log_warn "Plugins installed: ${installed_list:-none} (non-LSCache: $(join_by ", " "${extra_installed[@]:-}"))."
@@ -169,7 +184,7 @@ if [ "$wp_installed" -eq 1 ]; then
     fi
   fi
 
-  if printf '%s\n' "${active_plugins[@]:-}" | grep -qx "litespeed-cache" && [ "${#extra_active[@]}" -eq 0 ]; then
+  if [ "$lscwp_active" -eq 1 ] && [ "${#extra_active[@]}" -eq 0 ]; then
     log_ok "Plugins active: ${active_list:-none}."
   else
     log_warn "Plugins active: ${active_list:-none} (non-LSCache: $(join_by ", " "${extra_active[@]:-}"))."
@@ -181,10 +196,31 @@ fi
 
 wp_config="${doc_root%/}/wp-config.php"
 if [ -n "$doc_root" ] && [ -f "$wp_config" ]; then
+  wp_cache_enabled=0
   if grep -Eq "define\\(['\"]WP_CACHE['\"],\\s*true\\)" "$wp_config"; then
-    log_ok "WP_CACHE=true."
+    wp_cache_enabled=1
+  fi
+
+  if [ "${lscwp_active:-0}" -eq 1 ] && [ "$wp_cache_enabled" -eq 1 ]; then
+    log_ok "WP_CACHE=true (LSCWP active)."
+  elif [ "${lscwp_active:-0}" -eq 1 ] && [ "$wp_cache_enabled" -eq 0 ]; then
+    log_warn "WP_CACHE not set to true while LSCWP is active."
+    if [ "$hard_failures_enabled" -ge 1 ]; then
+      hard_failures_enabled=2
+    fi
+  elif [ "${lscwp_active:-0}" -eq 0 ] && [ "$wp_cache_enabled" -eq 1 ]; then
+    log_warn "WP_CACHE=true but LSCWP is not active."
+    if [ "$hard_failures_enabled" -ge 1 ]; then
+      hard_failures_enabled=2
+    fi
   else
-    log_warn "WP_CACHE not set to true."
+    log_ok "WP_CACHE=false (LSCWP inactive)."
+  fi
+
+  if grep -Eq "define\\(['\"]WP_DEBUG_DISPLAY['\"],\\s*false\\)" "$wp_config"; then
+    log_ok "WP_DEBUG_DISPLAY=false."
+  else
+    log_warn "WP_DEBUG_DISPLAY not set to false."
     if [ "$hard_failures_enabled" -ge 1 ]; then
       hard_failures_enabled=2
     fi
@@ -215,7 +251,23 @@ if [ -n "$uploads_basedir" ]; then
   fonts_dir="${uploads_basedir%/}/fonts"
   if [ -d "$uploads_basedir" ] && [ -d "$fonts_dir" ]; then
     perms="$(stat -c '%a %U:%G' "$fonts_dir" 2>/dev/null || true)"
-    log_ok "uploads/fonts exists: ${fonts_dir} (mode/owner=${perms:-unknown})."
+    mode="${perms%% *}"
+    owner_digit="${mode:0:1}"
+    group_digit="${mode:1:1}"
+    writable="no"
+    if echo "$owner_digit" | grep -Eq '^[0-9]$' && [ "$owner_digit" -ge 2 ]; then
+      writable="yes"
+    elif echo "$group_digit" | grep -Eq '^[0-9]$' && [ "$group_digit" -ge 2 ]; then
+      writable="yes"
+    fi
+    if [ "$writable" = "yes" ]; then
+      log_ok "uploads/fonts writable: ${fonts_dir} (mode/owner=${perms:-unknown})."
+    else
+      log_warn "uploads/fonts not writable: ${fonts_dir} (mode/owner=${perms:-unknown})."
+      if [ "$hard_failures_enabled" -ge 1 ]; then
+        hard_failures_enabled=2
+      fi
+    fi
   else
     log_warn "uploads/fonts missing: ${fonts_dir}."
     if [ "$hard_failures_enabled" -ge 1 ]; then
@@ -277,13 +329,25 @@ if [ "$wp_installed" -eq 1 ]; then
     1)
       log_ok "blog_public=1 (indexing enabled)."
       ;;
-    0)
-      log_ok "blog_public=0 (indexing disabled)."
-      ;;
     *)
-      log_warn "blog_public unavailable."
+      log_warn "blog_public not set to 1 (current: ${blog_public:-unknown})."
+      if [ "$hard_failures_enabled" -ge 1 ]; then
+        hard_failures_enabled=2
+      fi
       ;;
   esac
+fi
+
+if [ "$wp_installed" -eq 1 ]; then
+  permalink_structure="$(wp_cli option get permalink_structure 2>/dev/null || true)"
+  if [ -n "$permalink_structure" ] && [ "$permalink_structure" != "false" ]; then
+    log_ok "permalink_structure set: ${permalink_structure}."
+  else
+    log_warn "permalink_structure not set."
+    if [ "$hard_failures_enabled" -ge 1 ]; then
+      hard_failures_enabled=2
+    fi
+  fi
 fi
 
 if [ "$hard_failures_enabled" -eq 2 ]; then
