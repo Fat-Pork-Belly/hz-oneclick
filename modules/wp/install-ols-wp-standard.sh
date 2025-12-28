@@ -220,6 +220,44 @@ require_root() {
   fi
 }
 
+ensure_wp_cli() {
+  # [ANCHOR:WP_CLI_SETUP]
+  if command -v wp >/dev/null 2>&1; then
+    log_info "检测到 wp-cli：$(command -v wp)"
+    return 0
+  fi
+
+  log_step "安装 wp-cli"
+  if ! command -v curl >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update -qq || true
+      apt-get install -y curl
+    fi
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    log_error "未找到 curl，无法安装 wp-cli。"
+    return 1
+  fi
+
+  if curl -fsSL -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar; then
+    chmod +x /usr/local/bin/wp
+  else
+    log_error "下载 wp-cli 失败，请检查网络连接。"
+    return 1
+  fi
+
+  if command -v wp >/dev/null 2>&1; then
+    if wp --info >/dev/null 2>&1; then
+      log_info "wp-cli 已安装。"
+      return 0
+    fi
+  fi
+
+  log_error "wp-cli 安装失败，请手动检查 /usr/local/bin/wp。"
+  return 1
+}
+
 check_os() {
   # [ANCHOR:ENV_PRECHECK]
   if [ -r /etc/os-release ]; then
@@ -2499,10 +2537,11 @@ apply_wp_site_health_baseline() {
   update_wp_config_define "$wp_config" "WP_MAX_MEMORY_LIMIT" "256M" "string"
   memory_applied="yes"
 
-  if [ "${LSCWP_ENABLED:-no}" = "yes" ] \
-    || [ -d "${wp_content}/plugins/litespeed-cache" ]; then
+  if lscwp_is_active; then
     update_wp_config_define "$wp_config" "WP_CACHE" "true" "raw"
     cache_applied="yes"
+  else
+    update_wp_config_define "$wp_config" "WP_CACHE" "false" "raw"
   fi
 
   php_bin="$(detect_lsphp_bin)" || php_bin=""
@@ -2612,6 +2651,27 @@ wp_cli_base() {
   wp --path="$DOC_ROOT" --allow-root
 }
 
+lscwp_is_active() {
+  if ! command -v wp >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if [ -z "${DOC_ROOT:-}" ] || [ ! -d "$DOC_ROOT" ]; then
+    return 1
+  fi
+
+  if ! wp_cli_base core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if wp_cli_base plugin is-installed litespeed-cache >/dev/null 2>&1 \
+    && wp_cli_base plugin is-active litespeed-cache >/dev/null 2>&1; then
+    return 0
+  fi
+
+  return 1
+}
+
 ensure_lscache_only() {
   # [ANCHOR:WP_LSCACHE_ONLY]
   if ! command -v wp >/dev/null 2>&1; then
@@ -2659,25 +2719,37 @@ ensure_wp_cache() {
     return
   fi
 
-  if command -v wp >/dev/null 2>&1; then
-    if wp_cli_base config set WP_CACHE true --raw >/dev/null 2>&1; then
-      log_info "已设置 WP_CACHE=true。"
-      return
+  if lscwp_is_active; then
+    if command -v wp >/dev/null 2>&1; then
+      if wp_cli_base config set WP_CACHE true --raw >/dev/null 2>&1; then
+        log_info "已设置 WP_CACHE=true（LiteSpeed Cache 已启用）。"
+        return
+      fi
+
+      log_warn "wp-cli 写入 WP_CACHE 失败，尝试直接更新 wp-config.php。"
+    else
+      log_warn "未找到 wp-cli，尝试直接更新 wp-config.php。"
     fi
 
-    log_warn "wp-cli 写入 WP_CACHE 失败，尝试直接更新 wp-config.php。"
-  else
-    log_warn "未找到 wp-cli，尝试直接更新 wp-config.php。"
+    update_wp_config_define "${DOC_ROOT}/wp-config.php" "WP_CACHE" "true" "raw"
+    log_info "已写入 WP_CACHE=true（fallback）。"
+    return
   fi
 
-  update_wp_config_define "${DOC_ROOT}/wp-config.php" "WP_CACHE" "true" "raw"
-  log_info "已写入 WP_CACHE=true（fallback）。"
+  update_wp_config_define "${DOC_ROOT}/wp-config.php" "WP_CACHE" "false" "raw"
+  log_info "LiteSpeed Cache 未启用，已设置 WP_CACHE=false。"
 }
 
 ensure_uploads_fonts_dir() {
   # [ANCHOR:UPLOADS_FONTS_DIR]
   local uploads_basedir=""
   local fonts_dir=""
+  local uploads_owner_group=""
+  local uploads_mode=""
+  local fonts_mode=""
+  local owner_digit=""
+  local group_digit=""
+  local writable="no"
 
   if command -v wp >/dev/null 2>&1; then
     if [ -n "${DOC_ROOT:-}" ] && [ -d "$DOC_ROOT" ]; then
@@ -2694,17 +2766,44 @@ ensure_uploads_fonts_dir() {
     uploads_basedir="${DOC_ROOT}/wp-content/uploads"
   fi
 
+  mkdir -p "$uploads_basedir" >/dev/null 2>&1 || true
+  uploads_owner_group="$(stat -c '%u:%g' "$uploads_basedir" 2>/dev/null || true)"
+  uploads_mode="$(stat -c '%a' "$uploads_basedir" 2>/dev/null || true)"
   fonts_dir="${uploads_basedir}/fonts"
 
   if mkdir -p "$fonts_dir" 2>/dev/null; then
-    if id -u www-data >/dev/null 2>&1; then
+    if [ -n "$uploads_owner_group" ]; then
+      chown "$uploads_owner_group" "$fonts_dir" >/dev/null 2>&1 || true
+    elif id -u www-data >/dev/null 2>&1; then
       chown www-data:www-data "$fonts_dir" >/dev/null 2>&1 || true
     elif id -u nobody >/dev/null 2>&1 && getent group nogroup >/dev/null 2>&1; then
       chown nobody:nogroup "$fonts_dir" >/dev/null 2>&1 || true
     fi
+
+    if [ -n "$uploads_mode" ]; then
+      chmod "$uploads_mode" "$fonts_dir" >/dev/null 2>&1 || true
+    else
+      chmod 775 "$fonts_dir" >/dev/null 2>&1 || true
+    fi
     log_info "已确保 fonts 目录存在：${fonts_dir}"
   else
     log_warn "fonts 目录创建失败：${fonts_dir}"
+    return
+  fi
+
+  fonts_mode="$(stat -c '%a' "$fonts_dir" 2>/dev/null || true)"
+  owner_digit="${fonts_mode:0:1}"
+  group_digit="${fonts_mode:1:1}"
+  if echo "$owner_digit" | grep -Eq '^[0-9]$' && [ "$owner_digit" -ge 2 ]; then
+    writable="yes"
+  elif echo "$group_digit" | grep -Eq '^[0-9]$' && [ "$group_digit" -ge 2 ]; then
+    writable="yes"
+  fi
+
+  if [ "$writable" = "yes" ]; then
+    log_info "fonts 目录可写：${fonts_dir}"
+  else
+    log_warn "fonts 目录不可写：${fonts_dir}（权限 ${fonts_mode:-unknown}）"
   fi
 }
 
@@ -2748,6 +2847,52 @@ ensure_wp_indexing_policy() {
     log_info "已设置 blog_public=${policy_value}。"
   else
     log_warn "blog_public 写入失败，跳过。"
+  fi
+}
+
+ensure_wp_debug_display() {
+  # [ANCHOR:WP_DEBUG_DISPLAY]
+  if [ -z "${DOC_ROOT:-}" ] || [ ! -d "$DOC_ROOT" ]; then
+    log_warn "未找到站点目录，跳过 WP_DEBUG_DISPLAY 设置。"
+    return
+  fi
+
+  if [ ! -f "${DOC_ROOT}/wp-config.php" ]; then
+    log_warn "未找到 wp-config.php，跳过 WP_DEBUG_DISPLAY 设置。"
+    return
+  fi
+
+  update_wp_config_define "${DOC_ROOT}/wp-config.php" "WP_DEBUG_DISPLAY" "false" "raw"
+  log_info "已设置 WP_DEBUG_DISPLAY=false。"
+}
+
+ensure_wp_permalink_structure() {
+  # [ANCHOR:WP_PERMALINKS]
+  local structure="/%postname%/"
+
+  if ! command -v wp >/dev/null 2>&1; then
+    log_warn "未找到 wp-cli，跳过固定链接设置。"
+    return
+  fi
+
+  if [ -z "${DOC_ROOT:-}" ] || [ ! -d "$DOC_ROOT" ]; then
+    log_warn "未找到站点目录，跳过固定链接设置。"
+    return
+  fi
+
+  if ! wp_cli_base core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+    log_warn "WordPress 尚未完成安装，跳过固定链接设置。"
+    return
+  fi
+
+  if wp_cli_base option update permalink_structure "$structure" >/dev/null 2>&1; then
+    if wp_cli_base rewrite flush --hard >/dev/null 2>&1; then
+      log_info "固定链接已设置为 ${structure} 并刷新规则。"
+    else
+      log_warn "固定链接已设置为 ${structure}，但刷新规则失败。"
+    fi
+  else
+    log_warn "固定链接设置失败，跳过。"
   fi
 }
 
@@ -2843,6 +2988,7 @@ ensure_lsphp_modules_recommended() {
   local pkg_suffix modules
   local missing=()
   local missing_names=()
+  local verified="no"
 
   if [ -n "$php_bin" ] && [ ! -x "$php_bin" ]; then
     php_bin=""
@@ -2878,34 +3024,45 @@ ensure_lsphp_modules_recommended() {
 
   if [ "${#missing[@]}" -eq 0 ]; then
     log_info "推荐 PHP 模块已安装（imagick/intl）。"
-    return 1
+    verified="yes"
   fi
 
-  if ! command -v apt-get >/dev/null 2>&1; then
-    log_warn "未检测到 apt-get，推荐模块安装已跳过。"
-    return 1
-  fi
-
-  if [ "${LSPHP_EXTENSIONS_APT_UPDATED:-0}" -eq 0 ]; then
-    if ! apt-get update -qq; then
-      log_warn "apt-get update 失败，推荐模块安装可能无法完成。"
+  if [ "$verified" = "no" ]; then
+    if ! command -v apt-get >/dev/null 2>&1; then
+      log_warn "未检测到 apt-get，推荐模块安装已跳过。"
+      return 1
     fi
-    LSPHP_EXTENSIONS_APT_UPDATED=1
+
+    if [ "${LSPHP_EXTENSIONS_APT_UPDATED:-0}" -eq 0 ]; then
+      if ! apt-get update -qq; then
+        log_warn "apt-get update 失败，推荐模块安装可能无法完成。"
+      fi
+      LSPHP_EXTENSIONS_APT_UPDATED=1
+    fi
+
+    log_info "尝试安装推荐 PHP 模块（${missing_names[*]}）..."
+    if ! apt-get install -y "${missing[@]}"; then
+      log_warn "推荐模块安装失败（${missing_names[*]}），继续执行。"
+      return 1
+    fi
+
+    if systemctl restart lsws >/dev/null 2>&1; then
+      log_info "OpenLiteSpeed 已重启以加载推荐 PHP 模块。"
+    else
+      log_warn "OpenLiteSpeed 重启失败，请手动检查。"
+    fi
+
+    log_info "已安装推荐 PHP 扩展（${missing_names[*]}）。"
   fi
 
-  log_info "尝试安装推荐 PHP 模块（${missing_names[*]}）..."
-  if ! apt-get install -y "${missing[@]}"; then
-    log_warn "推荐模块安装失败（${missing_names[*]}），继续执行。"
+  modules="$("$php_bin" -m 2>/dev/null | tr '[:upper:]' '[:lower:]')" || modules=""
+  if ! printf '%s\n' "$modules" | grep -qx "imagick"; then
+    log_warn "imagick 仍不可用（lsphp${pkg_suffix}-imagick）。"
+    log_warn "请确认安装的模块版本匹配当前 LSPHP（${pkg_suffix}），并重启 lsws/lsphp。"
     return 1
   fi
 
-  if systemctl restart lsws >/dev/null 2>&1; then
-    log_info "OpenLiteSpeed 已重启以加载推荐 PHP 模块。"
-  else
-    log_warn "OpenLiteSpeed 重启失败，请手动检查。"
-  fi
-
-  log_info "已安装推荐 PHP 扩展（${missing_names[*]}）。"
+  log_info "imagick 扩展已可用。"
   return 0
 }
 
@@ -2965,6 +3122,9 @@ ensure_default_theme_policy() {
   local installed_themes theme
 
   target_theme="$(resolve_default_theme_slug)"
+  if [ -n "$target_theme" ]; then
+    log_info "按年份选择默认主题：$(date +%Y) -> ${target_theme}"
+  fi
 
   if [ -n "$target_theme" ]; then
     if wp_cli_base theme install "$target_theme" --activate >/dev/null 2>&1; then
@@ -2999,7 +3159,7 @@ ensure_default_theme_policy() {
     wp_cli_base theme delete "$theme" >/dev/null 2>&1 || true
   done
 
-  log_info "默认主题已设置为 ${selected_theme}。"
+  log_info "默认主题已设置为 ${selected_theme}（保留最新年度主题）。"
 }
 
 verify_wp_baseline() {
@@ -3022,8 +3182,10 @@ apply_wp_lomp_baseline() {
   local php_bin
 
   ensure_lscache_only
-  ensure_wp_indexing_policy
   ensure_wp_cache
+  ensure_wp_debug_display
+  ensure_wp_indexing_policy
+  ensure_wp_permalink_structure
   ensure_uploads_fonts_dir
   ensure_lscwp_page_cache_detect
   php_bin="$(detect_lsphp_bin)" || php_bin=""
@@ -3045,6 +3207,20 @@ random_wp_salt() {
   fi
 
   printf "%s" "$salt"
+}
+
+random_wp_password() {
+  local password=""
+
+  if command -v openssl >/dev/null 2>&1; then
+    password="$(openssl rand -base64 18 2>/dev/null | tr -d '\n')"
+  fi
+
+  if [ -z "$password" ]; then
+    password="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 18)"
+  fi
+
+  printf "%s" "$password"
 }
 
 fetch_wp_salts() {
@@ -3101,6 +3277,82 @@ apply_wp_salts() {
   else
     log_info "已写入 WordPress 安全密钥（salt）。"
   fi
+}
+
+ensure_wp_core_installed() {
+  # [ANCHOR:WP_CORE_INSTALL]
+  local site_url site_title admin_user admin_pass admin_email choice admin_pass_input
+
+  if ! command -v wp >/dev/null 2>&1; then
+    log_warn "未找到 wp-cli，无法自动初始化 WordPress。"
+    return 1
+  fi
+
+  if [ -z "${DOC_ROOT:-}" ] || [ ! -d "$DOC_ROOT" ]; then
+    log_warn "未找到站点目录，无法初始化 WordPress。"
+    return 1
+  fi
+
+  if wp_cli_base core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ "${SSL_MODE:-http-only}" = "http-only" ]; then
+    site_url="http://${SITE_DOMAIN}"
+  else
+    site_url="https://${SITE_DOMAIN}"
+  fi
+
+  if [ -t 0 ] && [ -t 1 ]; then
+    read -rp "使用 wp-cli 初始化 WordPress？[Y/n] " choice
+    choice="${choice:-Y}"
+  else
+    choice="Y"
+  fi
+
+  case "$choice" in
+    [Nn]*)
+      log_warn "已跳过 WordPress 初始化，WP baseline 将延后至安装完成后。"
+      return 1
+      ;;
+    *)
+      ;;
+  esac
+
+  site_title="${SITE_DOMAIN:-WordPress Site}"
+  admin_user="admin"
+  admin_email="admin@localhost"
+  admin_pass="$(random_wp_password)"
+
+  if [ -t 0 ] && [ -t 1 ]; then
+    read -rp "站点标题（默认 ${site_title}）: " site_title
+    site_title="${site_title:-${SITE_DOMAIN:-WordPress Site}}"
+    read -rp "管理员用户名（默认 ${admin_user}）: " admin_user
+    admin_user="${admin_user:-admin}"
+    read -rp "管理员邮箱（默认 ${admin_email}）: " admin_email
+    admin_email="${admin_email:-admin@localhost}"
+    read -rsp "管理员密码（留空自动生成）: " admin_pass_input
+    echo
+    if [ -n "$admin_pass_input" ]; then
+      admin_pass="$admin_pass_input"
+    fi
+  fi
+
+  if wp_cli_base core install \
+    --url="$site_url" \
+    --title="$site_title" \
+    --admin_user="$admin_user" \
+    --admin_password="$admin_pass" \
+    --admin_email="$admin_email" >/dev/null 2>&1; then
+    log_info "WordPress 已初始化完成。"
+    log_info "管理员账号: ${admin_user}"
+    log_info "管理员密码: ${admin_pass}"
+    log_info "管理员邮箱: ${admin_email}"
+    return 0
+  fi
+
+  log_warn "WordPress 初始化失败，请手动完成安装后再执行 baseline。"
+  return 1
 }
 
 ensure_wp_redis_config() {
@@ -4126,7 +4378,7 @@ print_summary() {
   echo "  1) 在浏览器直接访问 http://${SITE_DOMAIN} 或 http://<服务器IP> 测试站点是否正常;"
   echo "  2) 确认云厂商安全组和本机防火墙均已放行 80/443;"
   echo "  3) 再在 CDN / 加速服务后台开启代理（橙云）和 HTTPS。"
-  echo "  4) 访问 http://${SITE_DOMAIN}/wp-admin/install.php 完成站点初始化（已自动生成 wp-config.php）。"
+  echo "  4) 如未自动初始化 WordPress，请访问 http://${SITE_DOMAIN}/wp-admin/install.php 完成站点初始化。"
   echo
 
   print_https_post_install "${SITE_DOMAIN}"
@@ -4191,6 +4443,7 @@ install_frontend_only_flow() {
   print_lite_preflight_summary
 
   install_packages
+  ensure_wp_cli || { log_error "wp-cli 未就绪，无法继续 LOMP-Lite baseline。"; exit 1; }
   setup_vhost_config
   download_wordpress
   prompt_site_size_limit
@@ -4202,6 +4455,7 @@ install_frontend_only_flow() {
   env_self_check
   configure_ssl
   ensure_wp_https_urls
+  ensure_wp_core_installed || true
   apply_wp_lomp_baseline
   run_loopback_preflight
   print_summary
@@ -4261,6 +4515,7 @@ install_standard_flow() {
   done
 
   install_packages
+  ensure_wp_cli || { log_error "wp-cli 未就绪，无法继续 LOMP baseline。"; exit 1; }
   setup_vhost_config
   download_wordpress
   prompt_site_size_limit
@@ -4271,6 +4526,7 @@ install_standard_flow() {
   env_self_check
   configure_ssl
   ensure_wp_https_urls
+  ensure_wp_core_installed || true
   apply_wp_lomp_baseline
   run_loopback_preflight
   print_summary
@@ -4563,6 +4819,7 @@ install_hub_flow() {
   setup_hub_local_db
 
   install_packages
+  ensure_wp_cli || { log_error "wp-cli 未就绪，无法继续 LOMP baseline。"; exit 1; }
   setup_vhost_config
   download_wordpress
   prompt_site_size_limit
@@ -4572,6 +4829,7 @@ install_hub_flow() {
   fix_permissions
   env_self_check
   configure_ssl
+  ensure_wp_core_installed || true
   apply_wp_lomp_baseline
   run_loopback_preflight
   print_summary
