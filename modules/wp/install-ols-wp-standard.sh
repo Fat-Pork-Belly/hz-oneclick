@@ -210,6 +210,38 @@ log_step()  {
   echo -e "\n${CYAN}==== $* ====${NC}\n"
 }
 
+is_menu_context() {
+  if [ "${HZ_ENTRY:-}" = "menu" ]; then
+    return 0
+  fi
+
+  if [ -n "${HZ_WP_PROFILE:-}" ]; then
+    return 0
+  fi
+
+  return 1
+}
+
+read_if_tty() {
+  local prompt="$1"
+  if [ -t 0 ]; then
+    read -rp "$prompt" _
+  else
+    echo "$prompt"
+  fi
+}
+
+finish_install_flow() {
+  if is_menu_context && [ -t 0 ]; then
+    read_if_tty "按回车返回主菜单..."
+    show_main_menu
+    return
+  fi
+
+  read_if_tty "Install finished. Press Enter to exit..."
+  exit 0
+}
+
 trap 'log_error "脚本执行中断（行号: $LINENO）。"; exit 1' ERR
 
 require_root() {
@@ -1191,7 +1223,6 @@ show_post_install_summary() {
   echo
   echo -e "${CYAN}=========================================================${NC}"
   echo
-  read -rp "按回车返回主菜单..." _
 }
 
 ########################
@@ -3840,6 +3871,12 @@ ensure_wp_https_urls() {
 ensure_wp_loopback_and_rest_health() {
   # [ANCHOR:WP_LOOPBACK_REST_HEALTH]
   local doc_root="${DOC_ROOT:-}"
+  local domain="${SITE_DOMAIN:-}"
+  local site_url=""
+  local scheme="https"
+  local base_url=""
+  local wp_json_code ajax_code
+  local curl_exit=0
 
   if ! command -v wp >/dev/null 2>&1; then
     log_warn "未找到 wp-cli，跳过 REST/loopback 检查。"
@@ -3851,27 +3888,57 @@ ensure_wp_loopback_and_rest_health() {
     return
   fi
 
-  local wp_http_output wp_http_exit wp_http_code
-  wp_http_output="$(
-    wp --path="$doc_root" --allow-root eval "\$u = home_url('/wp-json/'); \$r = wp_remote_get(\$u, ['timeout'=>10, 'redirection'=>3]); if (is_wp_error(\$r)) { echo 'WPHTTP_ERROR: '.\$r->get_error_message().\"\n\"; exit(2); } \$code = wp_remote_retrieve_response_code(\$r); echo 'WPHTTP_CODE: '.\$code.\"\\n\"; exit((\$code>=200 && \$code<400) ? 0 : 3);"
-  )"
-  wp_http_exit=$?
-  wp_http_code="$(printf '%s\n' "$wp_http_output" | awk -F': ' '/WPHTTP_CODE:/ {print $2; exit}')"
-
-  if printf '%s' "$wp_http_output" | grep -q "WPHTTP_ERROR:"; then
-    log_warn "REST/loopback 请求失败：${wp_http_output}"
+  if ! wp --path="$doc_root" --allow-root core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+    log_info "Skipping REST/loopback check: WordPress not installed yet."
     return
   fi
 
-  if [ "$wp_http_exit" -ne 0 ]; then
-    log_warn "REST/loopback 返回异常：${wp_http_output}"
+  if ! command -v curl >/dev/null 2>&1; then
+    log_warn "未找到 curl，跳过 REST/loopback 检查。"
     return
   fi
 
-  if printf '%s' "$wp_http_code" | grep -Eq '^(2|3)[0-9]{2}$'; then
-    log_info "REST/loopback 请求正常：HTTP ${wp_http_code}"
+  if [ -z "$domain" ]; then
+    site_url="$(wp --path="$doc_root" --allow-root option get home --skip-plugins --skip-themes 2>/dev/null || true)"
+    if [ -z "$site_url" ]; then
+      site_url="$(wp --path="$doc_root" --allow-root option get siteurl --skip-plugins --skip-themes 2>/dev/null || true)"
+    fi
+    site_url="${site_url%/}"
+    site_url="${site_url#http://}"
+    site_url="${site_url#https://}"
+    site_url="${site_url%%/*}"
+    domain="$site_url"
+  fi
+
+  if [ -z "$domain" ]; then
+    log_warn "未检测到域名，跳过 REST/loopback 检查。"
+    return
+  fi
+
+  if [ "${SSL_MODE:-http-only}" = "http-only" ]; then
+    scheme="http"
+  fi
+
+  base_url="${scheme}://${domain}"
+
+  curl_exit=0
+  wp_json_code="$(curl -kfsS -o /dev/null -w "%{http_code}" "${base_url}/wp-json/" 2>/dev/null)" || curl_exit=$?
+  if [ "$curl_exit" -ne 0 ]; then
+    log_warn "REST API 请求失败：${base_url}/wp-json/"
+  elif printf '%s' "$wp_json_code" | grep -Eq '^(2|3)[0-9]{2}$'; then
+    log_info "REST API 正常：HTTP ${wp_json_code}"
   else
-    log_warn "REST/loopback 返回异常：HTTP ${wp_http_code:-未知}"
+    log_warn "REST API 返回异常：HTTP ${wp_json_code:-未知}"
+  fi
+
+  curl_exit=0
+  ajax_code="$(curl -kfsS -o /dev/null -w "%{http_code}" "${base_url}/wp-admin/admin-ajax.php" 2>/dev/null)" || curl_exit=$?
+  if [ "$curl_exit" -ne 0 ]; then
+    log_warn "Loopback 请求失败：${base_url}/wp-admin/admin-ajax.php"
+  elif printf '%s' "$ajax_code" | grep -Eq '^(2|3)[0-9]{2}$'; then
+    log_info "Loopback 正常：HTTP ${ajax_code}"
+  else
+    log_warn "Loopback 返回异常：HTTP ${ajax_code:-未知}"
   fi
 }
 
@@ -4182,10 +4249,6 @@ env_self_check() {
   echo "  2) 确认本机防火墙（如 ufw）已放行 80/443；"
   echo "  3) 确认云厂商安全组 / 防火墙已放行 80/443 到本实例；"
   echo "  4) 如使用 CDN/加速服务，确认其 SSL 模式与源站证书是否匹配。"
-
-  echo
-  log_step "WordPress REST/loopback 自检"
-  ensure_wp_loopback_and_rest_health
 }
 
 configure_ssl() {
@@ -4500,6 +4563,8 @@ install_frontend_only_flow() {
   ensure_wp_https_urls
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  log_step "WordPress REST/loopback 自检"
+  ensure_wp_loopback_and_rest_health
   run_loopback_preflight
   print_summary
   print_site_size_limit_summary
@@ -4508,16 +4573,7 @@ install_frontend_only_flow() {
     show_post_install_summary "${SITE_DOMAIN}"
   fi
 
-  echo "-------------------------------------"
-  echo "  1) 返回主菜单"
-  echo "  0) 退出脚本"
-  echo "-------------------------------------"
-  read -rp "请输入选项 [0-1]: " opt
-  case "$opt" in
-    1) show_main_menu ;;
-    0) log_info "已退出脚本。"; exit 0 ;;
-    *) log_warn "输入无效，默认退出脚本。"; exit 0 ;;
-  esac
+  finish_install_flow
 }
 
 install_standard_flow() {
@@ -4571,6 +4627,8 @@ install_standard_flow() {
   ensure_wp_https_urls
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  log_step "WordPress REST/loopback 自检"
+  ensure_wp_loopback_and_rest_health
   run_loopback_preflight
   print_summary
   print_site_size_limit_summary
@@ -4579,16 +4637,7 @@ install_standard_flow() {
     show_post_install_summary "${SITE_DOMAIN}"
   fi
 
-  echo "-------------------------------------"
-  echo "  1) 返回主菜单"
-  echo "  0) 退出脚本"
-  echo "-------------------------------------"
-  read -rp "请输入选项 [0-1]: " opt
-  case "$opt" in
-    1) show_main_menu ;;
-    0) log_info "已退出脚本。"; exit 0 ;;
-    *) log_warn "输入无效，默认退出脚本。"; exit 0 ;;
-  esac
+  finish_install_flow
 }
 
 is_private_ip() {
@@ -4874,6 +4923,8 @@ install_hub_flow() {
   configure_ssl
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  log_step "WordPress REST/loopback 自检"
+  ensure_wp_loopback_and_rest_health
   run_loopback_preflight
   print_summary
   print_hub_summary
@@ -4883,16 +4934,7 @@ install_hub_flow() {
     show_post_install_summary "${SITE_DOMAIN}"
   fi
 
-  echo "-------------------------------------"
-  echo "  1) 返回主菜单"
-  echo "  0) 退出脚本"
-  echo "-------------------------------------"
-  read -rp "请输入选项 [0-1]: " opt
-  case "$opt" in
-    1) show_main_menu ;;
-    0) log_info "已退出脚本。"; exit 0 ;;
-    *) log_warn "输入无效，默认退出脚本。"; exit 0 ;;
-  esac
+  finish_install_flow
 }
 
 run_wp_profile_override() {
