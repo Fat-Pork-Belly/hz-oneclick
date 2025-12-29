@@ -568,6 +568,75 @@ opt_task_baseline_cleanup() {
   fi
 }
 
+opt_task_theme_cleanup() {
+  local lang wp_path active_theme
+  local inactive_themes_raw inactive_themes=()
+  local candidates=()
+  local theme
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: Theme cleanup (default themes)"
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
+  if ! ensure_wp_cli; then
+    if [ "$lang" = "en" ]; then
+      log_warn "wp-cli not ready; skip theme cleanup."
+    else
+      log_warn "wp-cli 未就绪，跳过主题清理。"
+    fi
+    return 1
+  fi
+
+  wp_path="${OPT_WP_PATH:-}"
+  active_theme="$(wp --path="$wp_path" --allow-root theme list --status=active --field=stylesheet --skip-plugins --skip-themes 2>/dev/null | head -n 1)"
+  if [ -z "$active_theme" ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "Unable to detect active theme; skip cleanup."
+    else
+      log_warn "无法检测当前启用主题，跳过清理。"
+    fi
+    return 1
+  fi
+
+  inactive_themes_raw="$(wp --path="$wp_path" --allow-root theme list --status=inactive --field=stylesheet --skip-plugins --skip-themes 2>/dev/null || true)"
+  if [ -n "$inactive_themes_raw" ]; then
+    mapfile -t inactive_themes <<<"$inactive_themes_raw"
+  fi
+
+  for theme in "${inactive_themes[@]}"; do
+    if [[ "$theme" =~ ^twentytwenty ]] && [ "$theme" != "$active_theme" ]; then
+      candidates+=("$theme")
+    fi
+  done
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    if [ "$lang" = "en" ]; then
+      log_info "No inactive default themes to remove."
+    else
+      log_info "无可清理的默认主题。"
+    fi
+    return 0
+  fi
+
+  if wp --path="$wp_path" --allow-root theme delete "${candidates[@]}" --skip-plugins --skip-themes; then
+    if [ "$lang" = "en" ]; then
+      log_ok "Removed inactive default themes: ${candidates[*]}"
+    else
+      log_ok "已清理默认主题：${candidates[*]}"
+    fi
+    return 0
+  fi
+
+  if [ "$lang" = "en" ]; then
+    log_warn "Theme cleanup failed."
+  else
+    log_warn "主题清理失败。"
+  fi
+  return 1
+}
+
 opt_task_permalinks() {
   local lang
   lang="$(get_finish_lang)"
@@ -809,8 +878,9 @@ show_optimize_menu() {
       echo "  5) Optimize: REST API /wp-json check"
       echo "  6) Optimize: Site Health snapshot"
       echo "  7) Optimize: WP core integrity (verify checksums)"
+      echo "  8) Optimize: Theme cleanup (default themes)"
       echo "  0) Back / Exit"
-      read -rp "Choose [0-7]: " choice
+      read -rp "Choose [0-8]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) Optimize：LSCWP（启用）"
@@ -820,8 +890,9 @@ show_optimize_menu() {
       echo "  5) Optimize：REST API /wp-json 检查"
       echo "  6) Optimize：站点健康快照"
       echo "  7) Optimize：WP 核心完整性（校验）"
+      echo "  8) Optimize：主题清理（默认主题）"
       echo "  0) 返回 / 退出"
-      read -rp "请输入选项 [0-7]: " choice
+      read -rp "请输入选项 [0-8]: " choice
     fi
 
     case "$choice" in
@@ -867,6 +938,14 @@ show_optimize_menu() {
         ;;
       7)
         if opt_task_core_checksums; then
+          optimize_finish_menu
+          return 0
+        fi
+        optimize_finish_menu
+        return 1
+        ;;
+      8)
+        if opt_task_theme_cleanup; then
           optimize_finish_menu
           return 0
         fi
