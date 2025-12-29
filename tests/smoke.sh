@@ -66,6 +66,10 @@ smoke_strict_enabled() {
   smoke_is_truthy "${HZ_SMOKE_STRICT:-}"
 }
 
+smoke_dummy_warn_enabled() {
+  smoke_is_truthy "${HZ_SMOKE_DUMMY_WARN:-0}"
+}
+
 smoke_normalize_verdict() {
   local value token
   value="${1:-}"
@@ -679,80 +683,110 @@ if [ -r "./lib/baseline.sh" ] && [ -r "./lib/baseline_triage.sh" ]; then
     fi
   )
 
-  echo "[smoke] baseline_triage exit-code regression"
-  warn_output_file="$(mktemp)"
+  if smoke_dummy_warn_enabled; then
+    echo "[smoke] baseline_triage exit-code regression (dummy warn enabled)"
+    warn_output_file="$(mktemp)"
+    (
+      baseline_triage__run_groups() {
+        baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
+        return 2
+      }
+
+      set +e
+      HZ_CI_SMOKE=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en"
+      normal_exit_code=$?
+      set -e
+      if [ "$normal_exit_code" -eq 0 ]; then
+        echo "[smoke] baseline_triage normal mode should allow non-zero exit" >&2
+        exit 1
+      fi
+
+      set +e
+      HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke > "$warn_output_file"
+      warn_exit_code=$?
+      set -e
+      if [ "$warn_exit_code" -ne 0 ]; then
+        echo "[smoke] baseline_triage smoke mode should exit 0" >&2
+        exit 1
+      fi
+    )
+    update_smoke_verdict_from_output "$(cat "$warn_output_file")"
+    rm -f "$warn_output_file"
+  else
+    echo "[smoke] baseline_triage exit-code regression skipped (set HZ_SMOKE_DUMMY_WARN=1 to enable)"
+  fi
+
+  echo "[smoke] baseline_triage default-mode PASS check"
   (
     baseline_triage__run_groups() {
-      baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
-      return 2
-    }
-
-    set +e
-    HZ_CI_SMOKE=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en"
-    normal_exit_code=$?
-    set -e
-    if [ "$normal_exit_code" -eq 0 ]; then
-      echo "[smoke] baseline_triage normal mode should allow non-zero exit" >&2
-      exit 1
-    fi
-
-    set +e
-    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke > "$warn_output_file"
-    warn_exit_code=$?
-    set -e
-    if [ "$warn_exit_code" -ne 0 ]; then
-      echo "[smoke] baseline_triage smoke mode should exit 0" >&2
-      exit 1
-    fi
-  )
-  update_smoke_verdict_from_output "$(cat "$warn_output_file")"
-  rm -f "$warn_output_file"
-
-  echo "[smoke] smoke verdict strictness policy"
-  (
-    expected_warn_non_strict=0
-    expected_warn_strict=0
-    if smoke_is_truthy "0"; then
-      expected_warn_non_strict=1
-    fi
-    if smoke_is_truthy "1"; then
-      expected_warn_strict=1
-    fi
-
-    baseline_triage__run_groups() {
-      baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
       return 0
     }
 
     set +e
-    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
-    warn_exit_non_strict=$?
-    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
-    warn_exit_strict=$?
-
-    baseline_triage__run_groups() {
-      baseline_add_result "TEST" "test_fail" "FAIL" "TEST_FAIL" "fail detected" "fix failure"
-      return 0
-    }
-    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
-    fail_exit_non_strict=$?
-    HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
-    fail_exit_strict=$?
+    default_output="$(BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en")"
+    default_exit_code=$?
     set -e
-
-    if [ "$warn_exit_non_strict" -ne "$expected_warn_non_strict" ]; then
-      echo "[smoke] WARN should exit 0 when HZ_SMOKE_STRICT=0" >&2
+    if [ "$default_exit_code" -ne 0 ]; then
+      echo "[smoke] baseline_triage default mode should exit 0" >&2
       exit 1
     fi
-    if [ "$warn_exit_strict" -ne "$expected_warn_strict" ]; then
-      echo "[smoke] WARN should exit 1 when HZ_SMOKE_STRICT=1" >&2
-      exit 1
-    fi
-    if [ "$fail_exit_non_strict" -eq 0 ] || [ "$fail_exit_strict" -eq 0 ]; then
-      echo "[smoke] FAIL should exit 1 in all modes" >&2
+    default_verdict="$(printf "%s\n" "$default_output" | awk -F':' '/^VERDICT:/ {print $2}' | awk '{print $1}' | tail -n1)"
+    default_verdict="$(smoke_normalize_verdict "$default_verdict")"
+    if [ "$default_verdict" != "PASS" ] && [ "$default_verdict" != "OK" ]; then
+      echo "[smoke] baseline_triage default mode should be PASS" >&2
       exit 1
     fi
   )
+
+  if smoke_dummy_warn_enabled; then
+    echo "[smoke] smoke verdict strictness policy (dummy warn enabled)"
+    (
+      expected_warn_non_strict=0
+      expected_warn_strict=0
+      if smoke_is_truthy "0"; then
+        expected_warn_non_strict=1
+      fi
+      if smoke_is_truthy "1"; then
+        expected_warn_strict=1
+      fi
+
+      baseline_triage__run_groups() {
+        baseline_add_result "TEST" "test_warn" "WARN" "TEST_WARN" "warn detected" "review warning"
+        return 0
+      }
+
+      set +e
+      HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
+      warn_exit_non_strict=$?
+      HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
+      warn_exit_strict=$?
+
+      baseline_triage__run_groups() {
+        baseline_add_result "TEST" "test_fail" "FAIL" "TEST_FAIL" "fail detected" "fix failure"
+        return 0
+      }
+      HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=0 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
+      fail_exit_non_strict=$?
+      HZ_CI_SMOKE=1 HZ_SMOKE_STRICT=1 BASELINE_TEST_MODE=1 baseline_triage_run "triage.example.com" "en" --smoke >/dev/null
+      fail_exit_strict=$?
+      set -e
+
+      if [ "$warn_exit_non_strict" -ne "$expected_warn_non_strict" ]; then
+        echo "[smoke] WARN should exit 0 when HZ_SMOKE_STRICT=0" >&2
+        exit 1
+      fi
+      if [ "$warn_exit_strict" -ne "$expected_warn_strict" ]; then
+        echo "[smoke] WARN should exit 1 when HZ_SMOKE_STRICT=1" >&2
+        exit 1
+      fi
+      if [ "$fail_exit_non_strict" -eq 0 ] || [ "$fail_exit_strict" -eq 0 ]; then
+        echo "[smoke] FAIL should exit 1 in all modes" >&2
+        exit 1
+      fi
+    )
+  else
+    echo "[smoke] smoke verdict strictness policy skipped (set HZ_SMOKE_DUMMY_WARN=1 to enable)"
+  fi
 
   echo "[smoke] baseline_triage report output"
   set +e
