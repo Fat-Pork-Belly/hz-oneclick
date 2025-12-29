@@ -399,19 +399,10 @@ optimize_finish_menu() {
   done
 }
 
-# [ANCHOR:OPTIMIZE_PHASE]
-run_optimize_phase() {
+opt_prepare_context() {
   local lang
   local wp_path
-  local summary=()
   lang="$(get_finish_lang)"
-
-  log_step "Optimize (post-install)"
-  if [ "$lang" = "en" ]; then
-    echo "Post-install optimize phase."
-  else
-    echo "安装后 Optimize 阶段。"
-  fi
 
   resolve_optimize_site_context
   wp_path="${DOC_ROOT:-}"
@@ -459,13 +450,51 @@ run_optimize_phase() {
     fi
   fi
 
-  if is_openlitespeed_active; then
-    if wp --path="$wp_path" --allow-root plugin install litespeed-cache --activate --skip-plugins --skip-themes >/dev/null 2>&1; then
-      summary+=("LSCWP")
+  OPT_WP_PATH="$wp_path"
+  return 0
+}
+
+opt_task_lscwp() {
+  local lang
+  local wp_path
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: LSCWP"
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
+  wp_path="${OPT_WP_PATH:-}"
+  if ! is_openlitespeed_active; then
+    if [ "$lang" = "en" ]; then
+      log_warn "OpenLiteSpeed not detected; skip LSCWP."
+    else
+      log_warn "未检测到 OpenLiteSpeed，跳过 LSCWP。"
+    fi
+    return 1
+  fi
+
+  if wp --path="$wp_path" --allow-root plugin is-installed litespeed-cache --skip-plugins --skip-themes >/dev/null 2>&1; then
+    if wp --path="$wp_path" --allow-root plugin activate litespeed-cache --skip-plugins --skip-themes >/dev/null 2>&1; then
       if [ "$lang" = "en" ]; then
-        log_info "LiteSpeed Cache installed and activated."
+        log_info "LiteSpeed Cache activated (settings unchanged)."
       else
-        log_info "LiteSpeed Cache 已安装并启用。"
+        log_info "LiteSpeed Cache 已启用（设置未更改）。"
+      fi
+    else
+      if [ "$lang" = "en" ]; then
+        log_warn "LiteSpeed Cache activation failed."
+      else
+        log_warn "LiteSpeed Cache 启用失败。"
+      fi
+      return 1
+    fi
+  else
+    if wp --path="$wp_path" --allow-root plugin install litespeed-cache --activate --skip-plugins --skip-themes >/dev/null 2>&1; then
+      if [ "$lang" = "en" ]; then
+        log_info "LiteSpeed Cache installed and activated (settings unchanged)."
+      else
+        log_info "LiteSpeed Cache 已安装并启用（设置未更改）。"
       fi
     else
       if [ "$lang" = "en" ]; then
@@ -473,21 +502,75 @@ run_optimize_phase() {
       else
         log_warn "LiteSpeed Cache 安装/启用失败。"
       fi
+      return 1
     fi
   fi
 
+  return 0
+}
+
+opt_task_baseline_cleanup() {
+  local lang
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: baseline cleanup"
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
   apply_wp_site_health_baseline
-  summary+=("baseline")
+  if [ "$lang" = "en" ]; then
+    log_info "Baseline cleanup done."
+  else
+    log_info "基线清理完成。"
+  fi
+}
+
+opt_task_permalinks() {
+  local lang
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: permalinks"
+  if ! opt_prepare_context; then
+    return 1
+  fi
 
   ensure_wp_permalink_structure
-  summary+=("permalink")
+  if [ "$lang" = "en" ]; then
+    log_info "Permalinks checked."
+  else
+    log_info "固定链接已检查。"
+  fi
+}
+
+opt_task_indexing_policy() {
+  local lang
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: indexing policy"
+  if ! opt_prepare_context; then
+    return 1
+  fi
 
   ensure_wp_indexing_policy
-  summary+=("indexing-policy")
+  if [ "$lang" = "en" ]; then
+    log_info "Indexing policy checked."
+  else
+    log_info "索引策略已检查。"
+  fi
+}
+
+opt_task_rest_loopback_checks() {
+  local lang
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: REST/loopback"
+  if ! opt_prepare_context; then
+    return 1
+  fi
 
   ensure_wp_cache
   ensure_lscwp_page_cache_detect
-
   ensure_wp_loopback_and_rest_health
   if [ -t 0 ] && [ -t 1 ]; then
     run_loopback_preflight
@@ -498,12 +581,78 @@ run_optimize_phase() {
       log_info "非交互模式：跳过 Loopback 预检交互提示。"
     fi
   fi
+}
 
-  if [ "$lang" = "en" ]; then
-    log_info "Optimize completed: ${summary[*]}"
-  else
-    log_info "Optimize 已完成：${summary[*]}"
+show_optimize_menu() {
+  local lang choice
+  lang="$(get_finish_lang)"
+
+  if [ ! -t 0 ]; then
+    if [ "$lang" = "en" ]; then
+      echo "Optimize menu requires interactive mode. Re-run with:"
+    else
+      echo "Optimize 菜单需要交互模式，请重新运行："
+    fi
+    print_optimize_rerun_command
+    return 0
   fi
+
+  while true; do
+    echo
+    if [ "$lang" = "en" ]; then
+      echo "=== Optimize Menu ==="
+      echo "  1) Optimize: LSCWP (enable)"
+      echo "  2) Optimize: baseline cleanup (coming soon)"
+      echo "  3) Optimize: permalinks (coming soon)"
+      echo "  4) Optimize: indexing policy (coming soon)"
+      echo "  5) Optimize: REST/loopback checks (coming soon)"
+      echo "  0) Back / Exit"
+      read -rp "Choose [0-5]: " choice
+    else
+      echo "=== Optimize 菜单 ==="
+      echo "  1) Optimize：LSCWP（启用）"
+      echo "  2) Optimize：基线清理（即将推出）"
+      echo "  3) Optimize：固定链接（即将推出）"
+      echo "  4) Optimize：索引策略（即将推出）"
+      echo "  5) Optimize：REST/Loopback 检查（即将推出）"
+      echo "  0) 返回 / 退出"
+      read -rp "请输入选项 [0-5]: " choice
+    fi
+
+    case "$choice" in
+      1)
+        opt_task_lscwp
+        optimize_finish_menu
+        return
+        ;;
+      2|3|4|5)
+        if [ "$lang" = "en" ]; then
+          echo "Coming soon."
+        else
+          echo "即将推出。"
+        fi
+        ;;
+      0)
+        if is_menu_context; then
+          show_main_menu
+          return
+        fi
+        exit 0
+        ;;
+      *)
+        if [ "$lang" = "en" ]; then
+          echo "Invalid choice, please try again."
+        else
+          echo "无效选项，请重试。"
+        fi
+        ;;
+    esac
+  done
+}
+
+# [ANCHOR:OPTIMIZE_PHASE]
+run_optimize_phase() {
+  show_optimize_menu
 }
 
 # [ANCHOR:FINISH_MENU]
@@ -530,7 +679,7 @@ finish_menu() {
       else
         echo "  1) Return to main menu (menu mode only)"
       fi
-      echo "  2) Run Optimize (post-install)"
+      echo "  2) Optimize (post-install)"
       echo "  0) Exit"
       read -rp "Choose [0-2]: " choice
     else
@@ -540,7 +689,7 @@ finish_menu() {
       else
         echo "  1) 返回主菜单（仅菜单模式）"
       fi
-      echo "  2) 运行 Optimize（安装后）"
+      echo "  2) Optimize（安装后）"
       echo "  0) 退出"
       read -rp "请输入选项 [0-2]: " choice
     fi
@@ -559,7 +708,7 @@ finish_menu() {
         exit 0
         ;;
       2)
-        run_optimize_phase
+        show_optimize_menu
         optimize_finish_menu
         return
         ;;
