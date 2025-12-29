@@ -901,6 +901,108 @@ opt_task_core_checksums() {
   return 1
 }
 
+opt_task_security_snapshot() {
+  local lang wp_path report_path
+  local wp_version site_url home_url permalink_structure
+  local blog_public users_can_register
+  local admin_users_raw admin_users_count
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: Security snapshot"
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
+  if ! ensure_wp_cli; then
+    if [ "$lang" = "en" ]; then
+      log_warn "wp-cli not ready; skip Security snapshot."
+    else
+      log_warn "wp-cli 未就绪，跳过安全快照。"
+    fi
+    return 1
+  fi
+
+  wp_path="${OPT_WP_PATH:-}"
+  report_path="/tmp/hz-wp-security-snapshot.txt"
+
+  : >"$report_path"
+
+  wp_version="$(wp --path="$wp_path" --allow-root core version --skip-plugins --skip-themes 2>/dev/null || true)"
+  site_url="$(wp --path="$wp_path" --allow-root option get siteurl --skip-plugins --skip-themes 2>/dev/null || true)"
+  home_url="$(wp --path="$wp_path" --allow-root option get home --skip-plugins --skip-themes 2>/dev/null || true)"
+  permalink_structure="$(wp --path="$wp_path" --allow-root option get permalink_structure --skip-plugins --skip-themes 2>/dev/null || true)"
+  blog_public="$(wp --path="$wp_path" --allow-root option get blog_public --skip-plugins --skip-themes 2>/dev/null || true)"
+  users_can_register="$(wp --path="$wp_path" --allow-root option get users_can_register --skip-plugins --skip-themes 2>/dev/null || true)"
+  admin_users_raw="$(wp --path="$wp_path" --allow-root user list --role=administrator --fields=user_login,roles --skip-plugins --skip-themes 2>/dev/null || true)"
+  admin_users_count="$(printf '%s\n' "$admin_users_raw" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+  {
+    echo "=== WordPress Security Snapshot ==="
+    echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "Site path: ${wp_path}"
+    echo
+    echo "WordPress version: ${wp_version:-unknown}"
+    echo "Site URL: ${site_url:-unknown}"
+    echo "Home URL: ${home_url:-unknown}"
+    echo "Permalink structure: ${permalink_structure:-empty}"
+    echo
+    echo "REST API reachability: see Optimize: REST API /wp-json check output (console logs)."
+    echo "Core integrity checksums: /tmp/hz-wp-checksums.txt (if run)."
+    echo
+    echo "Discourage search engines (blog_public): ${blog_public:-unknown}"
+    echo "User registration enabled (users_can_register): ${users_can_register:-unknown}"
+    echo
+    echo "Admin users (user_login, roles):"
+    if [ -n "$admin_users_raw" ]; then
+      printf '%s\n' "$admin_users_raw"
+    else
+      echo "No admin users found or wp-cli failed."
+    fi
+    echo
+    echo "File/dir permissions snapshot:"
+  } >>"$report_path"
+
+  for path in "$wp_path/wp-config.php" "$wp_path/wp-content" "$wp_path/wp-content/uploads"; do
+    if [ -e "$path" ]; then
+      if stat -c '%a %U:%G %n' "$path" >/dev/null 2>&1; then
+        stat -c '%a %U:%G %n' "$path" >>"$report_path"
+      elif stat -f '%Lp %Su:%Sg %N' "$path" >/dev/null 2>&1; then
+        stat -f '%Lp %Su:%Sg %N' "$path" >>"$report_path"
+      else
+        echo "stat unavailable for ${path}" >>"$report_path"
+      fi
+    else
+      echo "Missing: ${path}" >>"$report_path"
+    fi
+  done
+
+  {
+    echo
+    echo "Presence checks:"
+    if [ -f "$wp_path/xmlrpc.php" ]; then
+      echo "xmlrpc.php: present"
+    else
+      echo "xmlrpc.php: missing"
+    fi
+    if [ -f "$wp_path/wp-config-sample.php" ]; then
+      echo "wp-config-sample.php: present"
+    else
+      echo "wp-config-sample.php: missing"
+    fi
+  } >>"$report_path"
+
+  if [ "$lang" = "en" ]; then
+    log_ok "Security snapshot saved."
+    log_info "Saved output: ${report_path}"
+    log_info "Summary: blog_public=${blog_public:-unknown}, users_can_register=${users_can_register:-unknown}, admin_users=${admin_users_count:-0}"
+  else
+    log_ok "安全快照已保存。"
+    log_info "输出已保存：${report_path}"
+    log_info "概要：blog_public=${blog_public:-unknown}，users_can_register=${users_can_register:-unknown}，管理员数量=${admin_users_count:-0}"
+  fi
+  return 0
+}
+
 show_optimize_menu() {
   local lang choice
   lang="$(get_finish_lang)"
@@ -928,8 +1030,9 @@ show_optimize_menu() {
       echo "  7) Optimize: WP core integrity (verify checksums)"
       echo "  8) Optimize: Theme cleanup (default themes)"
       echo "  9) Optimize: Plugin cleanup (inactive plugins)"
+      echo " 10) Optimize: Security snapshot"
       echo "  0) Back / Exit"
-      read -rp "Choose [0-9]: " choice
+      read -rp "Choose [0-10]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) Optimize：LSCWP（启用）"
@@ -941,8 +1044,9 @@ show_optimize_menu() {
       echo "  7) Optimize：WP 核心完整性（校验）"
       echo "  8) Optimize：主题清理（默认主题）"
       echo "  9) Optimize：清理插件（未启用插件）"
+      echo " 10) Optimize：安全快照"
       echo "  0) 返回 / 退出"
-      read -rp "请输入选项 [0-9]: " choice
+      read -rp "请输入选项 [0-10]: " choice
     fi
 
     case "$choice" in
@@ -1004,6 +1108,14 @@ show_optimize_menu() {
         ;;
       9)
         if opt_task_plugin_cleanup; then
+          optimize_finish_menu
+          return 0
+        fi
+        optimize_finish_menu
+        return 1
+        ;;
+      10)
+        if opt_task_security_snapshot; then
           optimize_finish_menu
           return 0
         fi
