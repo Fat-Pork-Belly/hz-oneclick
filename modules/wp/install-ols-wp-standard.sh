@@ -684,6 +684,64 @@ opt_task_rest_api_check() {
   esac
 }
 
+opt_task_site_health_snapshot() {
+  local lang wp_path status_json_path status_txt_path good_count recommended_count critical_count
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize: Site Health snapshot"
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
+  if ! ensure_wp_cli; then
+    if [ "$lang" = "en" ]; then
+      log_warn "wp-cli not ready; skip Site Health snapshot."
+    else
+      log_warn "wp-cli 未就绪，跳过站点健康快照。"
+    fi
+    return 1
+  fi
+
+  wp_path="${OPT_WP_PATH:-}"
+  status_json_path="/tmp/hz-site-health-status.json"
+  status_txt_path="/tmp/hz-site-health-status.txt"
+
+  if wp --path="$wp_path" --allow-root site-health status --format=json --skip-plugins --skip-themes >"$status_json_path" 2>/dev/null; then
+    if [ -s "$status_json_path" ]; then
+      good_count="$(grep -o '"status":"good"' "$status_json_path" | wc -l | tr -d ' ')"
+      recommended_count="$(grep -o '"status":"recommended"' "$status_json_path" | wc -l | tr -d ' ')"
+      critical_count="$(grep -o '"status":"critical"' "$status_json_path" | wc -l | tr -d ' ')"
+
+      if [ "$lang" = "en" ]; then
+        log_info "Site Health snapshot saved: ${status_json_path}"
+        log_info "Summary: good ${good_count}, recommended ${recommended_count}, critical ${critical_count}"
+      else
+        log_info "站点健康快照已保存：${status_json_path}"
+        log_info "概要：良好 ${good_count}，建议 ${recommended_count}，严重 ${critical_count}"
+      fi
+      return 0
+    fi
+  fi
+
+  if wp --path="$wp_path" --allow-root site-health status --skip-plugins --skip-themes >"$status_txt_path" 2>/dev/null; then
+    if [ -s "$status_txt_path" ]; then
+      if [ "$lang" = "en" ]; then
+        log_info "Site Health snapshot saved: ${status_txt_path}"
+      else
+        log_info "站点健康快照已保存：${status_txt_path}"
+      fi
+      return 0
+    fi
+  fi
+
+  if [ "$lang" = "en" ]; then
+    log_warn "Unable to generate Site Health snapshot."
+  else
+    log_warn "无法生成站点健康快照。"
+  fi
+  return 1
+}
+
 show_optimize_menu() {
   local lang choice
   lang="$(get_finish_lang)"
@@ -707,8 +765,9 @@ show_optimize_menu() {
       echo "  3) Optimize: permalinks (coming soon)"
       echo "  4) Optimize: indexing policy (coming soon)"
       echo "  5) Optimize: REST API /wp-json check"
+      echo "  6) Optimize: Site Health snapshot"
       echo "  0) Back / Exit"
-      read -rp "Choose [0-5]: " choice
+      read -rp "Choose [0-6]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) Optimize：LSCWP（启用）"
@@ -716,8 +775,9 @@ show_optimize_menu() {
       echo "  3) Optimize：固定链接（即将推出）"
       echo "  4) Optimize：索引策略（即将推出）"
       echo "  5) Optimize：REST API /wp-json 检查"
+      echo "  6) Optimize：站点健康快照"
       echo "  0) 返回 / 退出"
-      read -rp "请输入选项 [0-5]: " choice
+      read -rp "请输入选项 [0-6]: " choice
     fi
 
     case "$choice" in
@@ -728,6 +788,11 @@ show_optimize_menu() {
         ;;
       5)
         opt_task_rest_api_check
+        optimize_finish_menu
+        return
+        ;;
+      6)
+        opt_task_site_health_snapshot
         optimize_finish_menu
         return
         ;;
