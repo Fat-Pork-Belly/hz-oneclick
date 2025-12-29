@@ -386,7 +386,7 @@ show_lomp_lnmp_profile_menu() {
         else
           echo "即将启动 LOMP-Lite（Frontend-only）..."
         fi
-        HZ_WP_PROFILE="lomp-lite" bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
+        HZ_ENTRY="menu" HZ_LANG="$HZ_LANG" HZ_WP_PROFILE="lomp-lite" bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
         return
         ;;
       2)
@@ -395,7 +395,7 @@ show_lomp_lnmp_profile_menu() {
         else
           echo "即将启动 LOMP-Standard..."
         fi
-        HZ_WP_PROFILE="lomp-standard" bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
+        HZ_ENTRY="menu" HZ_LANG="$HZ_LANG" HZ_WP_PROFILE="lomp-standard" bash <(curl -fsSL "$HZ_INSTALL_BASE_URL/modules/wp/${HZ_WP_INSTALLER_SCRIPT}")
         return
         ;;
       3)

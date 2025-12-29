@@ -223,24 +223,134 @@ is_menu_context() {
   return 1
 }
 
-read_if_tty() {
-  local prompt="$1"
-  if [ -t 0 ]; then
-    read -rp "$prompt" _
+get_finish_lang() {
+  local lang
+  lang="${HZ_LANG:-${LANG:-zh}}"
+  if [[ "${lang,,}" == en* ]]; then
+    echo "en"
   else
-    echo "$prompt"
+    echo "zh"
   fi
 }
 
-finish_install_flow() {
-  if is_menu_context && [ -t 0 ]; then
-    read_if_tty "按回车返回主菜单..."
-    show_main_menu
-    return
+# [ANCHOR:OPTIMIZE_PHASE]
+run_optimize_phase() {
+  local lang
+  lang="$(get_finish_lang)"
+
+  log_step "Optimize (optional)"
+  if [ "$lang" = "en" ]; then
+    echo "Optional post-install optimize phase."
+  else
+    echo "可选的 Optimize 阶段（安装/启用 LSCWP + 基线优化 等）。"
   fi
 
-  read_if_tty "Install finished. Press Enter to exit..."
-  exit 0
+  if [ -z "${DOC_ROOT:-}" ] || [ ! -d "${DOC_ROOT:-}" ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "DOC_ROOT not detected; skip optimize."
+    else
+      log_warn "未检测到 DOC_ROOT，跳过 Optimize。"
+    fi
+    return 0
+  fi
+
+  if ! command -v wp >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_warn "wp-cli not found; skip optimize."
+    else
+      log_warn "未检测到 wp-cli，跳过 Optimize。"
+    fi
+    return 0
+  fi
+
+  if ! wp --path="$DOC_ROOT" core is-installed >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WordPress core is not installed yet; skip optimize."
+    else
+      log_warn "WordPress 尚未初始化，跳过 Optimize。"
+    fi
+    return 0
+  fi
+
+  if wp --path="$DOC_ROOT" core version >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_info "wp-cli is ready; optimize actions will be added in later steps."
+    else
+      log_info "wp-cli 已就绪；后续步骤将补充 Optimize 动作。"
+    fi
+  fi
+}
+
+# [ANCHOR:FINISH_MENU]
+finish_menu() {
+  local lang choice
+  lang="$(get_finish_lang)"
+
+  if [ ! -t 0 ]; then
+    if [ "$lang" = "en" ]; then
+      echo "Install finished (non-interactive). To run optimize: re-run with OPTIMIZE=1."
+    else
+      echo "安装完成（非交互）。如需运行 Optimize，请重新运行并加 OPTIMIZE=1。"
+    fi
+    exit 0
+  fi
+
+  while true; do
+    echo
+    if [ "$lang" = "en" ]; then
+      echo "=== Finish Menu ==="
+      if is_menu_context; then
+        echo "  1) Return to main menu"
+      else
+        echo "  1) Return to main menu (menu mode only)"
+      fi
+      echo "  2) Run Optimize now (optional: install/enable LSCWP + baseline tuning)"
+      echo "  3) Exit"
+      read -rp "Choose [1-3]: " choice
+    else
+      echo "=== 安装完成菜单 ==="
+      if is_menu_context; then
+        echo "  1) 返回主菜单"
+      else
+        echo "  1) 返回主菜单（仅菜单模式）"
+      fi
+      echo "  2) 运行 Optimize（可选：安装/启用 LSCWP + 基线优化）"
+      echo "  3) 退出"
+      read -rp "请输入选项 [1-3]: " choice
+    fi
+
+    case "$choice" in
+      1)
+        if is_menu_context; then
+          show_main_menu
+          return
+        fi
+        if [ "$lang" = "en" ]; then
+          echo "Not in menu mode, exiting."
+        else
+          echo "当前不是菜单模式，退出。"
+        fi
+        exit 0
+        ;;
+      2)
+        run_optimize_phase
+        ;;
+      3)
+        exit 0
+        ;;
+      *)
+        if [ "$lang" = "en" ]; then
+          echo "Invalid choice, please try again."
+        else
+          echo "无效选项，请重试。"
+        fi
+        ;;
+    esac
+  done
+}
+
+finish_install_flow() {
+  finish_menu
 }
 
 trap 'log_error "脚本执行中断（行号: $LINENO）。"; exit 1' ERR
