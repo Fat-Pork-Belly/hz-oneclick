@@ -1118,6 +1118,157 @@ opt_task_hardening_check() {
   return 0
 }
 
+opt_task_permissions_hardening_safe() {
+  local lang wp_path report_path wp_config_path
+  local world_writable_output world_writable_count world_writable_list
+  local wp_config_mode_line wp_config_mode_before
+  local changed_count=0 find_status
+  lang="$(get_finish_lang)"
+
+  if [ "$lang" = "en" ]; then
+    log_step "Optimize: Filesystem permissions hardening (safe)"
+  else
+    log_step "优化：文件权限加固（安全）"
+  fi
+
+  if ! opt_prepare_context; then
+    return 1
+  fi
+
+  if ! ensure_wp_cli; then
+    if [ "$lang" = "en" ]; then
+      log_warn "wp-cli not ready; skip permissions hardening."
+    else
+      log_warn "wp-cli 未就绪，跳过权限加固。"
+    fi
+    return 1
+  fi
+
+  wp_path="${OPT_WP_PATH:-}"
+  if [ -z "$wp_path" ] || [ ! -d "$wp_path" ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "Site root not detected; skip permissions hardening."
+    else
+      log_warn "未检测到站点目录，跳过权限加固。"
+    fi
+    return 1
+  fi
+
+  report_path="/tmp/hz-wp-permissions-hardening.txt"
+  wp_config_path="${wp_path}/wp-config.php"
+  : >"$report_path"
+
+  world_writable_output="$(find "$wp_path" -xdev -perm -0002 2>/dev/null)"
+  find_status=$?
+  if [ "$find_status" -ne 0 ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "Failed to scan world-writable paths."
+    else
+      log_warn "扫描其他可写路径失败。"
+    fi
+    return 1
+  fi
+
+  if [ -n "$world_writable_output" ]; then
+    world_writable_count="$(printf '%s\n' "$world_writable_output" | wc -l | tr -d ' ')"
+    world_writable_list="$(printf '%s\n' "$world_writable_output" | head -n 50)"
+  else
+    world_writable_count=0
+    world_writable_list=""
+  fi
+
+  if [ -f "$wp_config_path" ]; then
+    if stat -c '%a %n' "$wp_config_path" >/dev/null 2>&1; then
+      wp_config_mode_line="$(stat -c '%a %n' "$wp_config_path")"
+      wp_config_mode_before="$(stat -c '%a' "$wp_config_path" 2>/dev/null || true)"
+    elif stat -f '%Lp %N' "$wp_config_path" >/dev/null 2>&1; then
+      wp_config_mode_line="$(stat -f '%Lp %N' "$wp_config_path")"
+      wp_config_mode_before="$(stat -f '%Lp' "$wp_config_path" 2>/dev/null || true)"
+    else
+      wp_config_mode_line="stat unavailable for ${wp_config_path}"
+      wp_config_mode_before=""
+    fi
+  else
+    wp_config_mode_line="Missing: ${wp_config_path}"
+    wp_config_mode_before=""
+  fi
+
+  {
+    echo "=== WordPress Permissions Hardening (Safe) ==="
+    echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "Site path: ${wp_path}"
+    echo
+    echo "World-writable paths (other-writable bit) under site root:"
+    echo "Count: ${world_writable_count:-0}"
+    if [ -n "$world_writable_list" ]; then
+      echo "Paths (up to 50):"
+      printf '%s\n' "$world_writable_list"
+    else
+      echo "Paths (up to 50): none found"
+    fi
+    echo
+    echo "wp-config.php mode:"
+    if [ -f "$wp_config_path" ]; then
+      echo "Count: 1"
+      echo "Paths (up to 50):"
+      echo "$wp_config_mode_line"
+    else
+      echo "Count: 0"
+      echo "Paths (up to 50): none found"
+    fi
+  } >>"$report_path"
+
+  if [ -n "$world_writable_output" ]; then
+    while IFS= read -r path; do
+      if [ -z "$path" ]; then
+        continue
+      fi
+      if chmod o-w "$path" >/dev/null 2>&1; then
+        changed_count=$((changed_count + 1))
+      else
+        if [ "$lang" = "en" ]; then
+          log_warn "Failed to update permissions: ${path}"
+        else
+          log_warn "权限更新失败：${path}"
+        fi
+        return 1
+      fi
+    done <<<"$world_writable_output"
+  fi
+
+  if [ -f "$wp_config_path" ]; then
+    if [ "$wp_config_mode_before" != "600" ]; then
+      if chmod 600 "$wp_config_path" >/dev/null 2>&1; then
+        if [ -n "$wp_config_mode_before" ]; then
+          changed_count=$((changed_count + 1))
+        fi
+      else
+        if [ "$lang" = "en" ]; then
+          log_warn "Failed to enforce wp-config.php permissions."
+        else
+          log_warn "wp-config.php 权限加固失败。"
+        fi
+        return 1
+      fi
+    fi
+  fi
+
+  {
+    echo
+    echo "Summary: world_writable_count=${world_writable_count:-0}, changed_count=${changed_count:-0}"
+  } >>"$report_path"
+
+  if [ "$lang" = "en" ]; then
+    log_ok "Permissions hardening report saved: ${report_path}"
+    log_info "Summary: world_writable_count=${world_writable_count:-0}, changed_count=${changed_count:-0}"
+  else
+    log_ok "权限加固报告已保存：${report_path}"
+    log_info "概要：world_writable_count=${world_writable_count:-0}，changed_count=${changed_count:-0}"
+  fi
+
+  return 0
+}
+
 opt_task_wp_config_hardening_safe() {
   local lang wp_path report_path wp_config_path
   local had_constant applied backup_path timestamp
@@ -1295,8 +1446,9 @@ show_optimize_menu() {
       echo " 10) Optimize: Security snapshot"
       echo " 11) Optimize: Hardening check"
       echo " 12) Optimize: wp-config hardening (safe)"
+      echo " 13) Optimize: Filesystem permissions (safe)"
       echo "  0) Back / Exit"
-      read -rp "Choose [0-12]: " choice
+      read -rp "Choose [0-13]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) Optimize：LSCWP（启用）"
@@ -1311,8 +1463,9 @@ show_optimize_menu() {
       echo " 10) Optimize：安全快照"
       echo " 11) Optimize：加固检查"
       echo " 12) 优化：wp-config 轻量加固（安全）"
+      echo " 13) 优化：文件权限（安全）"
       echo "  0) 返回 / 退出"
-      read -rp "请输入选项 [0-12]: " choice
+      read -rp "请输入选项 [0-13]: " choice
     fi
 
     case "$choice" in
@@ -1398,6 +1551,14 @@ show_optimize_menu() {
         ;;
       12)
         if opt_task_wp_config_hardening_safe; then
+          optimize_finish_menu
+          return 0
+        fi
+        optimize_finish_menu
+        return 1
+        ;;
+      13)
+        if opt_task_permissions_hardening_safe; then
           optimize_finish_menu
           return 0
         fi
