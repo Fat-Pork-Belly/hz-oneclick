@@ -7601,17 +7601,23 @@ run_loopback_preflight() {
   if [ -f "${doc_root}/wp-config.php" ] || [ -f "${doc_root}/wp-settings.php" ]; then
     echo
     echo "4) WordPress REST API 回环检查"
-    if command -v curl >/dev/null 2>&1; then
-      curl_exit=0
-      curl_output="$(curl -kfsS --resolve "${domain}:443:127.0.0.1" "https://${domain}/wp-json/" 2>&1)" || curl_exit=$?
-      if [ "${curl_exit:-0}" -eq 0 ]; then
-        log_info "wp-json 回环请求成功。"
+    if command -v wp >/dev/null 2>&1; then
+      if ! wp_cli_base core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+        log_info "Skipping REST/loopback check: WordPress not installed yet."
+      elif command -v curl >/dev/null 2>&1; then
+        curl_exit=0
+        curl_output="$(curl -kfsS --resolve "${domain}:443:127.0.0.1" "https://${domain}/wp-json/" 2>&1)" || curl_exit=$?
+        if [ "${curl_exit:-0}" -eq 0 ]; then
+          log_info "wp-json 回环请求成功。"
+        else
+          log_warn "wp-json 回环请求失败：${curl_output}"
+          check_failed=1
+        fi
       else
-        log_warn "wp-json 回环请求失败：${curl_output}"
-        check_failed=1
+        log_warn "未找到 curl，跳过 wp-json 回环检查。"
       fi
     else
-      log_warn "未找到 curl，跳过 wp-json 回环检查。"
+      log_warn "未找到 wp-cli，跳过 wp-json 回环检查。"
     fi
   fi
 
@@ -7974,6 +7980,7 @@ print_summary() {
 install_frontend_only_flow() {
   # [ANCHOR:INSTALL_FLOW_LITE]
   local opt
+  local WP_INSTALL_RESULT=1
 
   require_root
   check_os
@@ -8047,11 +8054,19 @@ install_frontend_only_flow() {
   configure_ssl
   ensure_wp_https_urls
   run_https_loopback_hosts_mitigation
-  ensure_wp_core_installed || true
-  apply_wp_lomp_baseline
-  wp_slim_post_install
-  log_step "WordPress REST/loopback 自检"
-  ensure_wp_loopback_and_rest_health
+  if ensure_wp_core_installed; then
+    WP_INSTALL_RESULT=0
+  else
+    WP_INSTALL_RESULT=1
+  fi
+  if [ "$WP_INSTALL_RESULT" -eq 0 ]; then
+    apply_wp_lomp_baseline
+    wp_slim_post_install
+    log_step "WordPress REST/loopback 自检"
+    ensure_wp_loopback_and_rest_health
+  else
+    log_warn "WordPress install skipped or failed; skipping baseline optimization checks."
+  fi
   run_loopback_preflight
   print_summary
   print_site_size_limit_summary
@@ -8066,6 +8081,7 @@ install_frontend_only_flow() {
 install_standard_flow() {
   # [ANCHOR:INSTALL_FLOW_STANDARD]
   local opt
+  local WP_INSTALL_RESULT=1
 
   require_root
   check_os
@@ -8128,11 +8144,19 @@ install_standard_flow() {
   configure_ssl
   ensure_wp_https_urls
   run_https_loopback_hosts_mitigation
-  ensure_wp_core_installed || true
-  apply_wp_lomp_baseline
-  wp_slim_post_install
-  log_step "WordPress REST/loopback 自检"
-  ensure_wp_loopback_and_rest_health
+  if ensure_wp_core_installed; then
+    WP_INSTALL_RESULT=0
+  else
+    WP_INSTALL_RESULT=1
+  fi
+  if [ "$WP_INSTALL_RESULT" -eq 0 ]; then
+    apply_wp_lomp_baseline
+    wp_slim_post_install
+    log_step "WordPress REST/loopback 自检"
+    ensure_wp_loopback_and_rest_health
+  else
+    log_warn "WordPress install skipped or failed; skipping baseline optimization checks."
+  fi
   run_loopback_preflight
   print_summary
   print_site_size_limit_summary
@@ -8405,6 +8429,7 @@ print_hub_summary() {
 install_hub_flow() {
   # [ANCHOR:INSTALL_FLOW_HUB]
   local opt
+  local WP_INSTALL_RESULT=1
 
   require_root
   check_os
@@ -8427,11 +8452,19 @@ install_hub_flow() {
   fix_permissions
   env_self_check
   configure_ssl
-  ensure_wp_core_installed || true
-  apply_wp_lomp_baseline
-  wp_slim_post_install
-  log_step "WordPress REST/loopback 自检"
-  ensure_wp_loopback_and_rest_health
+  if ensure_wp_core_installed; then
+    WP_INSTALL_RESULT=0
+  else
+    WP_INSTALL_RESULT=1
+  fi
+  if [ "$WP_INSTALL_RESULT" -eq 0 ]; then
+    apply_wp_lomp_baseline
+    wp_slim_post_install
+    log_step "WordPress REST/loopback 自检"
+    ensure_wp_loopback_and_rest_health
+  else
+    log_warn "WordPress install skipped or failed; skipping baseline optimization checks."
+  fi
   run_loopback_preflight
   print_summary
   print_hub_summary
