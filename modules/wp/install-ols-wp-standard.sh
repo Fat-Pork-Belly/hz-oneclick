@@ -33,10 +33,10 @@ cd /
 #   - 完成"清理数据库 / Redis"后，不再直接退出脚本，而是返回「清理数据库 / Redis」菜单。
 #   - 安装流程完成后，在总结信息下方新增简单菜单：1) 返回主菜单  0) 退出脚本。
 # - v0.8:
-#   - 修复: 不再安装不存在的 lsphp83-xml / lsphp83-zip 包，避免 apt 报错中断。
+#   - 修复: 不再安装不存在的 ${LSPHP_VER}-xml / ${LSPHP_VER}-zip 包，避免 apt 报错中断。
 #   - 新增: 顶层主菜单 (0/1/2/3/4)，支持安装、LNMP 占位、本机 OLS/WordPress 清理、DB/Redis 清理。
 #   - 新增: "清理本机 OLS / WordPress" 二级菜单:
-#         1) 彻底移除本机 OLS (apt purge openlitespeed + lsphp83*，删除 /usr/local/lsws)
+#         1) 彻底移除本机 OLS (apt purge openlitespeed + ${LSPHP_VER}*，删除 /usr/local/lsws)
 #         2) 按 slug 清理某个站点 (删除 vhost + /var/www/<slug>)。
 #   - 新增: "清理数据库 / Redis" 二级菜单:
 #         1) 清理数据库 (DROP DATABASE + DROP USER，需多次确认)
@@ -126,6 +126,7 @@ fi
 : "${TIER_LITE:=lite}"
 : "${TIER_STANDARD:=standard}"
 : "${TIER_HUB:=hub}"
+: "${LSPHP_VER:=lsphp83}"
 
 if ! declare -f normalize_tier >/dev/null 2>&1; then
   normalize_tier() {
@@ -3831,7 +3832,7 @@ cleanup_lomp_menu() {
   echo -e "${YELLOW}[危险]${NC} 本菜单会在本机删除 LOMP/LNMP 或站点，请确认已备份。"
   echo
   echo "3) 清理本机 LOMP/LNMP / WordPress："
-  echo "  1) 彻底移除本机 LOMP Web（卸载 openlitespeed + lsphp83*，删除 /usr/local/lsws）"
+  echo "  1) 彻底移除本机 LOMP Web（卸载 openlitespeed + ${LSPHP_VER}*，删除 /usr/local/lsws）"
   echo "  2) 按 slug 清理本机某个 WordPress 站点（删除 vhost + /var/www/<slug>）"
   echo "  3) 返回上一层"
   echo "  0) 退出脚本"
@@ -3857,7 +3858,7 @@ remove_ols_global() {
   echo -e "${YELLOW}[警告]${NC} 即将 ${BOLD}彻底移除本机 LOMP Web${NC}"
   echo "本操作将："
   echo "  - systemctl 停止/禁用 lsws;"
-  echo "  - apt remove/purge openlitespeed 与 lsphp83 相关组件;"
+  echo "  - apt remove/purge openlitespeed 与 ${LSPHP_VER} 相关组件;"
   echo "  - 删除 /usr/local/lsws 目录;"
   echo "  - 不会自动删除 /var/www 下的站点目录。"
   echo
@@ -3876,10 +3877,10 @@ remove_ols_global() {
     systemctl disable lsws || true
   fi
 
-  log_info "使用 apt 移除 openlitespeed 与 lsphp83 相关组件（如不存在则跳过）。"
+  log_info "使用 apt 移除 openlitespeed 与 ${LSPHP_VER} 相关组件（如不存在则跳过）。"
   set +e
   apt remove --purge -y openlitespeed 2>/dev/null
-  apt remove --purge -y lsphp83 lsphp83-common lsphp83-mysql lsphp83-opcache 2>/dev/null
+  apt remove --purge -y "${LSPHP_VER}" "${LSPHP_VER}-common" "${LSPHP_VER}-mysql" "${LSPHP_VER}-opcache" 2>/dev/null
   apt autoremove -y 2>/dev/null
   set -Eeo pipefail
 
@@ -6069,11 +6070,12 @@ install_packages() {
   fi
 
   # [ANCHOR:INSTALL_PHP]
-  if ! dpkg -l | grep -q '^ii[[:space:]]\+lsphp83[[:space:]]'; then
-    log_info "安装 lsphp83 及常用扩展（common/mysql/opcache）..."
-    apt_get_install_retry lsphp83 lsphp83-common lsphp83-mysql lsphp83-opcache
+  log_info "使用 LSPHP_VER=${LSPHP_VER} / Using LSPHP_VER=${LSPHP_VER}."
+  if ! dpkg -l | grep -q "^ii[[:space:]]\\+${LSPHP_VER}[[:space:]]"; then
+    log_info "安装 ${LSPHP_VER} 及常用扩展（common/mysql/opcache/curl）..."
+    apt_get_install_retry "${LSPHP_VER}" "${LSPHP_VER}-common" "${LSPHP_VER}-mysql" "${LSPHP_VER}-opcache" "${LSPHP_VER}-curl"
   else
-    log_info "检测到 lsphp83 已安装，跳过。"
+    log_info "检测到 ${LSPHP_VER} 已安装，跳过。"
   fi
 
   systemctl enable lsws >/dev/null 2>&1 || true
