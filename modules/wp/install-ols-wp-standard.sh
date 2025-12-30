@@ -6221,6 +6221,154 @@ apply_wp_lomp_baseline() {
   # [ANCHOR:WP_BASELINE_END]
 }
 
+wp_slim_post_install() {
+  # [ANCHOR:WP_SLIMMING]
+  local lang wp_path target_theme
+  local plugins_removed=()
+  local plugin
+  local theme
+  local themes_raw themes=()
+  local candidates=()
+  local active_theme
+
+  lang="$(get_finish_lang)"
+  wp_path="${DOC_ROOT:-}"
+  target_theme="twentytwentyfour"
+
+  if [ -z "$wp_path" ] || [ ! -d "$wp_path" ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WP slimming skipped: site root missing."
+    else
+      log_warn "WP 精简已跳过：未找到站点目录。"
+    fi
+    return 0
+  fi
+
+  if ! ensure_wp_cli; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WP slimming skipped: wp-cli not ready."
+    else
+      log_warn "WP 精简已跳过：wp-cli 未就绪。"
+    fi
+    return 0
+  fi
+
+  if ! wp --path="$wp_path" --allow-root core is-installed --skip-plugins --skip-themes >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WP slimming skipped: WordPress not installed."
+    else
+      log_warn "WP 精简已跳过：WordPress 尚未安装。"
+    fi
+    return 0
+  fi
+
+  if [ "$lang" = "en" ]; then
+    log_info "WP slimming: start."
+  else
+    log_info "WP 精简：开始。"
+  fi
+
+  for plugin in akismet hello; do
+    if wp --path="$wp_path" --allow-root plugin is-installed "$plugin" --skip-plugins --skip-themes >/dev/null 2>&1; then
+      wp --path="$wp_path" --allow-root plugin deactivate "$plugin" --skip-plugins --skip-themes >/dev/null 2>&1 || true
+      if wp --path="$wp_path" --allow-root plugin delete "$plugin" --skip-plugins --skip-themes >/dev/null 2>&1; then
+        plugins_removed+=("$plugin")
+      else
+        if [ "$lang" = "en" ]; then
+          log_warn "Plugin removal failed: ${plugin}."
+        else
+          log_warn "插件移除失败：${plugin}。"
+        fi
+      fi
+    fi
+  done
+
+  if [ "${#plugins_removed[@]}" -gt 0 ]; then
+    if [ "$lang" = "en" ]; then
+      log_info "Removed plugins: ${plugins_removed[*]}."
+    else
+      log_info "已移除插件：${plugins_removed[*]}。"
+    fi
+  else
+    if [ "$lang" = "en" ]; then
+      log_info "No default plugins to remove."
+    else
+      log_info "默认插件无需移除。"
+    fi
+  fi
+
+  if ! wp --path="$wp_path" --allow-root theme is-installed "$target_theme" --skip-plugins --skip-themes >/dev/null 2>&1; then
+    if ! wp --path="$wp_path" --allow-root theme install "$target_theme" --skip-plugins --skip-themes >/dev/null 2>&1; then
+      if [ "$lang" = "en" ]; then
+        log_warn "WP slimming skipped: failed to install ${target_theme}."
+      else
+        log_warn "WP 精简已跳过：安装 ${target_theme} 失败。"
+      fi
+      return 0
+    fi
+  fi
+
+  if ! wp --path="$wp_path" --allow-root theme activate "$target_theme" --skip-plugins --skip-themes >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WP slimming skipped: failed to activate ${target_theme}."
+    else
+      log_warn "WP 精简已跳过：启用 ${target_theme} 失败。"
+    fi
+    return 0
+  fi
+
+  active_theme="$(wp --path="$wp_path" --allow-root theme list --status=active --field=stylesheet --skip-plugins --skip-themes 2>/dev/null | head -n 1)"
+  if [ "$active_theme" != "$target_theme" ]; then
+    if [ "$lang" = "en" ]; then
+      log_warn "WP slimming skipped: active theme mismatch (${active_theme:-unknown})."
+    else
+      log_warn "WP 精简已跳过：当前启用主题异常（${active_theme:-unknown}）。"
+    fi
+    return 0
+  fi
+
+  if [ "$lang" = "en" ]; then
+    log_info "Kept theme: ${target_theme}."
+  else
+    log_info "保留主题：${target_theme}。"
+  fi
+
+  themes_raw="$(wp --path="$wp_path" --allow-root theme list --field=name --skip-plugins --skip-themes 2>/dev/null || true)"
+  if [ -n "$themes_raw" ]; then
+    mapfile -t themes <<<"$themes_raw"
+  fi
+
+  for theme in "${themes[@]}"; do
+    if [ "$theme" = "$target_theme" ]; then
+      continue
+    fi
+    candidates+=("$theme")
+  done
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    if [ "$lang" = "en" ]; then
+      log_info "No extra themes to remove."
+    else
+      log_info "无多余主题需要移除。"
+    fi
+    return 0
+  fi
+
+  if wp --path="$wp_path" --allow-root theme delete "${candidates[@]}" --skip-plugins --skip-themes >/dev/null 2>&1; then
+    if [ "$lang" = "en" ]; then
+      log_info "Removed themes: ${candidates[*]}."
+    else
+      log_info "已移除主题：${candidates[*]}。"
+    fi
+  else
+    if [ "$lang" = "en" ]; then
+      log_warn "Theme removal failed."
+    else
+      log_warn "主题移除失败。"
+    fi
+  fi
+}
+
 random_wp_salt() {
   local salt=""
 
@@ -7604,6 +7752,7 @@ install_frontend_only_flow() {
   ensure_wp_https_urls
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  wp_slim_post_install
   log_step "WordPress REST/loopback 自检"
   ensure_wp_loopback_and_rest_health
   run_loopback_preflight
@@ -7681,6 +7830,7 @@ install_standard_flow() {
   ensure_wp_https_urls
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  wp_slim_post_install
   log_step "WordPress REST/loopback 自检"
   ensure_wp_loopback_and_rest_health
   run_loopback_preflight
@@ -7979,6 +8129,7 @@ install_hub_flow() {
   configure_ssl
   ensure_wp_core_installed || true
   apply_wp_lomp_baseline
+  wp_slim_post_install
   log_step "WordPress REST/loopback 自检"
   ensure_wp_loopback_and_rest_health
   run_loopback_preflight
