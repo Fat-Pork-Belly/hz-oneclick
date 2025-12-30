@@ -211,6 +211,104 @@ log_step()  {
   echo -e "\n${CYAN}==== $* ====${NC}\n"
 }
 
+create_mysql_defaults_file() {
+  local user="${1:-}"
+  local password="${2:-}"
+  local host="${3:-}"
+  local port="${4:-}"
+  local tmp old_umask
+
+  if [ -z "$user" ] || [ -z "$password" ]; then
+    log_error "数据库账号或密码缺失，无法建立连接。"
+    return 1
+  fi
+
+  old_umask="$(umask)"
+  umask 077
+  tmp="$(mktemp /tmp/hz-mysql-XXXXXX.cnf)" || {
+    umask "$old_umask"
+    log_error "无法创建临时 MySQL 配置文件。"
+    return 1
+  }
+
+  {
+    echo "[client]"
+    echo "user=${user}"
+    echo "password=${password}"
+    if [ -n "$host" ]; then
+      echo "host=${host}"
+    fi
+    if [ -n "$port" ]; then
+      echo "port=${port}"
+    fi
+  } >"$tmp"
+
+  umask "$old_umask"
+  chmod 600 "$tmp" 2>/dev/null || true
+
+  echo "$tmp"
+}
+
+run_mysql_client_secure() {
+  local client="${1:-}"
+  local user="${2:-}"
+  local password="${3:-}"
+  local host="${4:-}"
+  local port="${5:-}"
+  local tmp
+
+  shift 5 || true
+
+  if [ -z "$client" ]; then
+    log_error "未指定 MySQL 客户端。"
+    return 1
+  fi
+
+  tmp="$(create_mysql_defaults_file "$user" "$password" "$host" "$port")" || return 1
+  trap 'rm -f "$tmp"' RETURN
+
+  "$client" --defaults-extra-file="$tmp" "$@"
+}
+
+docker_mysql_client_secure() {
+  local container="${1:-}"
+  local client="${2:-}"
+  local user="${3:-}"
+  local password="${4:-}"
+  local host="${5:-}"
+  local port="${6:-}"
+
+  shift 6 || true
+
+  if [ -z "$container" ] || [ -z "$client" ]; then
+    log_error "未指定容器或 MySQL 客户端。"
+    return 1
+  fi
+
+  if [ -z "$user" ] || [ -z "$password" ]; then
+    log_error "数据库账号或密码缺失，无法建立连接。"
+    return 1
+  fi
+
+  docker exec -i "$container" /bin/sh -c '
+    umask 077
+    tmp="$(mktemp /tmp/hz-mysql-XXXXXX.cnf)" || exit 1
+    cat <&3 >"$tmp"
+    client="$1"
+    shift
+    "$client" --defaults-extra-file="$tmp" "$@"
+    status=$?
+    rm -f "$tmp"
+    exit "$status"
+  ' sh "$client" "$@" 3<<EOF
+[client]
+user=${user}
+password=${password}
+${host:+host=${host}}
+${port:+port=${port}}
+EOF
+}
+
 is_menu_context() {
   if [ "${HZ_ENTRY:-}" = "menu" ]; then
     return 0
@@ -3994,7 +4092,7 @@ cleanup_db_interactive() {
 
   log_step "执行数据库清理: $DB_NAME / $DB_USER"
 
-  mysql -h "$DB_HOST" -P "$DB_PORT" -u "$ADMIN_USER" -p"$ADMIN_PASS" \
+  run_mysql_client_secure "mysql" "$ADMIN_USER" "$ADMIN_PASS" "$DB_HOST" "$DB_PORT" \
     -e "DROP DATABASE IF EXISTS \`$DB_NAME\`; DROP USER IF EXISTS '$DB_USER'@'%'; FLUSH PRIVILEGES;"
 
   log_info "数据库 $DB_NAME 与用户 $DB_USER 已尝试删除（如存在）。"
@@ -4379,7 +4477,8 @@ test_db_connection() {
     LITE_DB_CLIENT="$db_client"
   fi
 
-  if mysql_err="$( { "$db_client" -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -e "SELECT 1;" >/dev/null; } 2>&1 )"; then
+  if mysql_err="$( { run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$host" "$port" \
+    -e "SELECT 1;" >/dev/null; } 2>&1 )"; then
     log_info "认证通过：${DB_USER}@${host}:${port}"
     if [ "${LITE_PREFLIGHT_MODE:-0}" -eq 1 ]; then
       LITE_DB_AUTH_STATUS="PASS"
@@ -4435,7 +4534,7 @@ diagnose_lite_db_grants_host_mismatch() {
     return 0
   fi
 
-  client_info="$("$db_client" -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -N -s \
+  client_info="$(run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$host" "$port" -N -s \
     -e "SELECT USER(), CURRENT_USER();" 2>/dev/null)" || true
   if [ -z "$client_info" ]; then
     return 0
@@ -4446,7 +4545,7 @@ diagnose_lite_db_grants_host_mismatch() {
   client_host="${client_user#*@}"
   current_host="${current_user#*@}"
 
-  if grants_err="$( { "$db_client" -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" \
+  if grants_err="$( { run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$host" "$port" \
     -e "SHOW GRANTS FOR '${DB_USER}'@'${client_host}';" >/dev/null; } 2>&1 )"; then
     return 0
   fi
@@ -4455,7 +4554,7 @@ diagnose_lite_db_grants_host_mismatch() {
     return 0
   fi
 
-  hosts="$("$db_client" -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -N -s \
+  hosts="$(run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$host" "$port" -N -s \
     -e "SELECT Host FROM mysql.user WHERE User='${DB_USER}' ORDER BY LENGTH(Host), Host;" 2>/dev/null)" || true
 
   if [ -z "$hosts" ]; then
@@ -4479,7 +4578,7 @@ diagnose_lite_db_grants_host_mismatch() {
 
   log_warn "说明：你的 DB 用户实际定义为 '${DB_USER}'@'${host_entry}'，因此对 '${DB_USER}'@'${client_host}' 执行 SHOW GRANTS 失败是预期行为。"
 
-  grants_output="$("$db_client" -h "$host" -P "$port" -u "$DB_USER" "-p$DB_PASSWORD" -N -s \
+  grants_output="$(run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$host" "$port" -N -s \
     -e "SHOW GRANTS FOR '${DB_USER}'@'${host_entry}';" 2>/dev/null)" || true
 
   if [ -n "$grants_output" ]; then
@@ -4509,7 +4608,7 @@ warn_lite_db_non_empty() {
     fi
   fi
 
-  table_count="$("$db_client" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "-p$DB_PASSWORD" -N -s \
+  table_count="$(run_mysql_client_secure "$db_client" "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$DB_PORT" -N -s \
     -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${DB_NAME}';" 2>/dev/null)" || true
 
   if ! [[ "$table_count" =~ ^[0-9]+$ ]]; then
@@ -7236,7 +7335,8 @@ wait_for_mariadb() {
   local root_pass="$2"
 
   for _ in {1..30}; do
-    if docker exec "$name" mariadb-admin -uroot -p"$root_pass" ping --silent >/dev/null 2>&1; then
+    if docker_mysql_client_secure "$name" mariadb-admin "root" "$root_pass" "" "" \
+      ping --silent >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -7353,7 +7453,7 @@ setup_hub_local_db() {
   esc_db_password="${DB_PASSWORD//\\/\\\\}"
   esc_db_password="${esc_db_password//\'/\\\'}"
 
-  if docker exec -i main-db mariadb -uroot -p"$MAIN_DB_ROOT_PASS" <<SQL
+  if docker_mysql_client_secure "main-db" mariadb "root" "$MAIN_DB_ROOT_PASS" "" "" <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${esc_db_password}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
@@ -7376,7 +7476,8 @@ SQL
     esac
   fi
 
-  if docker exec -i main-db mariadb -u"$DB_USER" -p"$DB_PASSWORD" -e "USE \`${DB_NAME}\`; SELECT 1;" >/dev/null 2>&1; then
+  if docker_mysql_client_secure "main-db" mariadb "$DB_USER" "$DB_PASSWORD" "" "" \
+    -e "USE \`${DB_NAME}\`; SELECT 1;" >/dev/null 2>&1; then
     log_info "数据库连通性检查通过：${DB_USER}@main-db/${DB_NAME}。"
   else
     log_warn "数据库连通性检查失败，请确认密码正确。"
