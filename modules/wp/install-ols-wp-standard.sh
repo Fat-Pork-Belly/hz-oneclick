@@ -26,7 +26,7 @@ BASELINE_TRIAGE_LIB="${REPO_ROOT}/lib/baseline_triage.sh"
 cd /
 
 # install-lomp-lnmp-standard.sh
-# Version: v1.0.0-rc.1
+# Version: v1.0.0-rc.2
 # Date: 2025-01-02
 # 更新记录:
 # - v0.9:
@@ -62,6 +62,7 @@ SITE_SIZE_CHECK_SCRIPT=""
 SITE_SIZE_CHECK_SERVICE=""
 SITE_SIZE_CHECK_TIMER=""
 LSPHP_EXTENSIONS_APT_UPDATED=0
+LSPHP_TUNING_STATUS="pending"
 : "${INSTALL_MODE:=full}"
 : "${WP_INSTALL_SKIPPED:=0}"
 
@@ -2542,6 +2543,7 @@ run_optimize_wizard() {
   local check_paths=()
   local check_path
   local image_engine_status="GD (Basic)"
+  local php_limits_status="Pending/Unknown"
   local php_bin=""
   local php_modules=""
 
@@ -2660,6 +2662,10 @@ run_optimize_wizard() {
     fi
   fi
 
+  if [ "${LSPHP_TUNING_STATUS:-}" = "applied" ]; then
+    php_limits_status="Forced (64M/64M/256M)"
+  fi
+
   echo
   if [ "$lang" = "en" ]; then
     echo "=== Smart Optimize Scan ==="
@@ -2668,6 +2674,7 @@ run_optimize_wizard() {
     printf "  %-16s %s\n" "Indexing:" "$indexing_status"
     printf "  %-16s %s\n" "Security blocks:" "$security_status"
     printf "  %-16s %s\n" "Permissions:" "$permissions_status"
+    printf "  %-16s %s\n" "PHP Limits:" "$php_limits_status"
     printf "  %-16s %s\n" "Image Engine:" "$image_engine_status"
   else
     echo "=== Smart Optimize 扫描结果 ==="
@@ -2676,6 +2683,12 @@ run_optimize_wizard() {
     printf "  %-16s %s\n" "索引策略:" "$indexing_status"
     printf "  %-16s %s\n" "安全阻断:" "$security_status"
     printf "  %-16s %s\n" "权限检查:" "$permissions_status"
+    if [ "${LSPHP_TUNING_STATUS:-}" = "applied" ]; then
+      php_limits_status="强制 (64M/64M/256M)"
+    else
+      php_limits_status="待确认/未知"
+    fi
+    printf "  %-16s %s\n" "PHP 限制:" "$php_limits_status"
     printf "  %-16s %s\n" "Image Engine:" "$image_engine_status"
   fi
 
@@ -5911,45 +5924,9 @@ find_lsphp_ini_path() {
   return 1
 }
 
-ensure_php_ini_block() {
-  local ini="$1"
-  local begin_marker="; HZ-ONECLICK: php.ini tuning BEGIN"
-  local end_marker="; HZ-ONECLICK: php.ini tuning END"
-
-  if grep -Fq "$begin_marker" "$ini" && grep -Fq "$end_marker" "$ini"; then
-    return 0
-  fi
-
-  {
-    echo
-    echo "$begin_marker"
-    echo "$end_marker"
-  } >>"$ini"
-}
-
-set_or_append_php_ini_value() {
-  local ini="$1"
-  local key="$2"
-  local value="$3"
-
-  if grep -Eq "^[[:space:]]*;?[[:space:]]*${key}[[:space:]]*=" "$ini"; then
-    if grep -Eq "^[[:space:]]*;?[[:space:]]*${key}[[:space:]]*=[[:space:]]*${value}[[:space:]]*$" "$ini"; then
-      return 1
-    fi
-    sed -i -E "s|^[[:space:]]*;?[[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|" "$ini"
-    return 0
-  fi
-
-  ensure_php_ini_block "$ini"
-  sed -i "/HZ-ONECLICK: php.ini tuning END/i ${key} = ${value}" "$ini"
-  return 0
-}
-
 apply_lsphp_ini_tuning() {
   # [ANCHOR:APPLY_LSPHP_INI_TUNING]
   local ini_hash_before ini_hash_after
-  local key
-  local value
   local backup
   local candidates=()
   local ini_files=()
@@ -5959,9 +5936,9 @@ apply_lsphp_ini_tuning() {
   local php_bin=""
   local verify_bin=""
   local reported="no"
-  local memory_current=""
-  local upload_current=""
-  local post_current=""
+  local verify_output=""
+  local begin_marker="; HZ-ONECLICK TUNING BEGIN"
+  local end_marker="; HZ-ONECLICK TUNING END"
 
   if [ -n "${LSPHP_VER:-}" ]; then
     candidates+=("/usr/local/lsws/${LSPHP_VER}/etc/php.ini")
@@ -5990,6 +5967,7 @@ apply_lsphp_ini_tuning() {
   done
 
   if [ "${#ini_files[@]}" -eq 0 ]; then
+    LSPHP_TUNING_STATUS="missing"
     log_warn "未检测到 LSPHP php.ini，跳过 PHP 参数调优。/ php.ini not found, skipping tuning."
     return 1
   fi
@@ -6004,15 +5982,18 @@ apply_lsphp_ini_tuning() {
 
     ini_hash_before="$(sha256sum "$candidate" | awk '{print $1}')"
 
-    for key in upload_max_filesize post_max_size memory_limit; do
-      case "$key" in
-        upload_max_filesize) value="64M" ;;
-        post_max_size) value="64M" ;;
-        memory_limit) value="256M" ;;
-      esac
-
-      set_or_append_php_ini_value "$candidate" "$key" "$value" || true
-    done
+    sed -i -E "/^[[:space:]]*;[[:space:]]*HZ-ONECLICK TUNING BEGIN/,/^[[:space:]]*;[[:space:]]*HZ-ONECLICK TUNING END/d" "$candidate"
+    sed -i -E "s|^[[:space:]]*upload_max_filesize[[:space:]]*=|;(hz-oneclick) upload_max_filesize =|" "$candidate"
+    sed -i -E "s|^[[:space:]]*post_max_size[[:space:]]*=|;(hz-oneclick) post_max_size =|" "$candidate"
+    sed -i -E "s|^[[:space:]]*memory_limit[[:space:]]*=|;(hz-oneclick) memory_limit =|" "$candidate"
+    {
+      echo
+      echo "$begin_marker"
+      echo "upload_max_filesize = 64M"
+      echo "post_max_size = 64M"
+      echo "memory_limit = 256M"
+      echo "$end_marker"
+    } >>"$candidate"
 
     ini_hash_after="$(sha256sum "$candidate" | awk '{print $1}')"
     if [ "$ini_hash_before" != "$ini_hash_after" ]; then
@@ -6020,10 +6001,18 @@ apply_lsphp_ini_tuning() {
     fi
   done
 
+  LSPHP_TUNING_STATUS="applied"
+
   if [ "${#changed_files[@]}" -gt 0 ]; then
     log_info "已更新 php.ini：${changed_files[*]} / php.ini tuned."
   else
     log_info "php.ini 已符合 OLS/LSPHP 调优要求，无需修改。/ php.ini already tuned."
+  fi
+
+  if command -v killall >/dev/null 2>&1; then
+    killall lsphp >/dev/null 2>&1 || true
+  elif command -v pkill >/dev/null 2>&1; then
+    pkill -f 'lsphp' >/dev/null 2>&1 || true
   fi
 
   if systemctl restart lsws >/dev/null 2>&1; then
@@ -6036,28 +6025,20 @@ apply_lsphp_ini_tuning() {
     fi
   fi
 
-  if command -v pkill >/dev/null 2>&1; then
-    pkill -f 'lsphp' >/dev/null 2>&1 || true
-  elif command -v killall >/dev/null 2>&1; then
-    killall lsphp >/dev/null 2>&1 || true
-  fi
-
-  verify_bin="/usr/local/lsws/${LSPHP_VER}/bin/php"
-  if [ ! -x "$verify_bin" ] && command -v php >/dev/null 2>&1; then
-    verify_bin="$(command -v php)"
-  fi
-  if [ -x "$verify_bin" ]; then
-    memory_current="$("$verify_bin" -i 2>/dev/null | awk -F'=> ' '/^memory_limit/ {print $2; exit}')"
-    upload_current="$("$verify_bin" -i 2>/dev/null | awk -F'=> ' '/^upload_max_filesize/ {print $2; exit}')"
-    post_current="$("$verify_bin" -i 2>/dev/null | awk -F'=> ' '/^post_max_size/ {print $2; exit}')"
-    if [ -n "$memory_current" ] || [ -n "$upload_current" ] || [ -n "$post_current" ]; then
-      log_info "PHP 运行值: memory_limit=${memory_current:-unknown}, upload_max_filesize=${upload_current:-unknown}, post_max_size=${post_current:-unknown}"
-      reported="yes"
+  for verify_bin in /usr/local/lsws/lsphp*/bin/php; do
+    if [ -x "$verify_bin" ]; then
+      verify_output="$("$verify_bin" -i 2>/dev/null | grep -E "Loaded Configuration File|upload_max_filesize|post_max_size|memory_limit" || true)"
+      if [ -n "$verify_output" ]; then
+        log_info "PHP loaded ini + limits (${verify_bin}):"
+        printf '%s\n' "$verify_output"
+        reported="yes"
+      fi
+      break
     fi
-  fi
+  done
 
   if [ "$reported" = "no" ]; then
-    log_warn "无法自动验证 PHP 运行值，请手动执行：/usr/local/lsws/${LSPHP_VER}/bin/php -i | egrep 'memory_limit|upload_max_filesize|post_max_size'"
+    log_warn "无法自动验证 PHP 运行值，请手动执行：/usr/local/lsws/lsphp*/bin/php -i | grep -E \"Loaded Configuration File|upload_max_filesize|post_max_size|memory_limit\""
   fi
 
   return 0
