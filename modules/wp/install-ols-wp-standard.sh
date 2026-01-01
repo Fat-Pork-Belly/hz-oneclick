@@ -513,6 +513,90 @@ is_fail2ban_active() {
   return 1
 }
 
+get_fail2ban_status_tag() {
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet fail2ban >/dev/null 2>&1; then
+      echo "[已启用]"
+      return 0
+    fi
+  fi
+  echo "[未配置]"
+}
+
+get_postfix_relay_status_tag() {
+  if [ -f /etc/postfix/sasl_passwd ] && [ -f /etc/postfix/sasl_passwd.db ]; then
+    echo "[已配置]"
+    return 0
+  fi
+  echo "[未配置]"
+}
+
+root_crontab_has_entry() {
+  local pattern="$1"
+
+  if ! command -v crontab >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if crontab -l -u root 2>/dev/null | grep -q -- "$pattern"; then
+    return 0
+  fi
+
+  return 1
+}
+
+cron_files_have_entry() {
+  local pattern="$1"
+  local cron_path
+
+  for cron_path in /etc/cron.*; do
+    if [ -d "$cron_path" ]; then
+      if grep -R -q -- "$pattern" "$cron_path" 2>/dev/null; then
+        return 0
+      fi
+    elif [ -f "$cron_path" ]; then
+      if grep -q -- "$pattern" "$cron_path" 2>/dev/null; then
+        return 0
+      fi
+    fi
+  done
+
+  return 1
+}
+
+get_rclone_backup_status_tag() {
+  if root_crontab_has_entry "/usr/local/bin/hz-backup.sh"; then
+    echo "[已计划]"
+    return 0
+  fi
+
+  if cron_files_have_entry "hz-backup.sh"; then
+    echo "[已计划]"
+    return 0
+  fi
+
+  if [ -f /etc/cron.d/hz-backup ]; then
+    echo "[已计划]"
+    return 0
+  fi
+
+  echo "[未配置]"
+}
+
+get_healthcheck_status_tag() {
+  if root_crontab_has_entry "/usr/local/bin/hz-healthcheck.sh"; then
+    echo "[已计划]"
+    return 0
+  fi
+
+  if cron_files_have_entry "hz-healthcheck.sh"; then
+    echo "[已计划]"
+    return 0
+  fi
+
+  echo "[未配置]"
+}
+
 optimize_finish_menu() {
   local lang choice
   lang="$(get_finish_lang)"
@@ -594,7 +678,7 @@ security_finish_menu() {
 
     case "$choice" in
       1)
-        show_security_menu
+        show_ops_menu
         return
         ;;
       2)
@@ -3031,61 +3115,59 @@ show_optimize_advanced_menu() {
   done
 }
 
-show_security_menu() {
-  local lang choice fail2ban_label fail2ban_path
-  lang="$(get_finish_lang)"
-  fail2ban_path="${REPO_ROOT}/modules/security/install-fail2ban.sh"
+show_ops_menu() {
+  local choice repo_root fail2ban_path postfix_path rclone_path healthcheck_path
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  fail2ban_path="${repo_root}/modules/security/install-fail2ban.sh"
+  postfix_path="${repo_root}/modules/mail/setup-postfix-relay.sh"
+  rclone_path="${repo_root}/modules/backup/setup-backup-rclone.sh"
+  healthcheck_path="${repo_root}/modules/monitor/setup-healthcheck.sh"
 
   while true; do
     echo
-    if is_fail2ban_active; then
-      if [ "$lang" = "en" ]; then
-        fail2ban_label="Fail2Ban Deploy [active]"
-      else
-        fail2ban_label="Fail2Ban 防御部署 [已启用]"
-      fi
-    else
-      if [ "$lang" = "en" ]; then
-        fail2ban_label="Fail2Ban Deploy [inactive]"
-      else
-        fail2ban_label="Fail2Ban 防御部署 [未启用]"
-      fi
-    fi
-
-    if [ "$lang" = "en" ]; then
-      echo "=== Security Hardening Center ==="
-      echo "  1) ${fail2ban_label}"
-      echo "  2) (Coming soon) Rkhunter intrusion detection"
-      echo "  3) (Coming soon) Postfix alerting"
-      echo "  0) Back"
-      read -rp "Choose [0-3]: " choice
-    else
-      echo "=== 安全加固中心 ==="
-      echo "  1) ${fail2ban_label}"
-      echo "  2) (Coming soon) Rkhunter 入侵检测"
-      echo "  3) (Coming soon) Postfix 邮件告警"
-      echo "  0) 🔙 返回上一级"
-      read -rp "请输入选项 [0-3]: " choice
-    fi
+    echo "=== 运维与安全中心 ==="
+    echo "  1) Fail2Ban 防御部署 $(get_fail2ban_status_tag)"
+    echo "  2) Postfix 邮件告警配置 $(get_postfix_relay_status_tag)"
+    echo "  3) Rclone 备份策略 $(get_rclone_backup_status_tag)"
+    echo "  4) HealthCheck 健康检查 $(get_healthcheck_status_tag)"
+    echo "  0) 🔙 返回上一级"
+    read -rp "请输入选项 [0-4]: " choice
 
     case "$choice" in
       1)
         if [ ! -f "$fail2ban_path" ]; then
-          log_error "缺少 Fail2Ban 安装脚本：${fail2ban_path}"
+          echo "[ERROR] 未找到模块脚本：${fail2ban_path}"
           continue
         fi
         if ! bash "$fail2ban_path"; then
           log_error "Fail2Ban 模块执行失败，请检查日志后重试。"
+        fi
+        ;;
+      2)
+        if [ ! -f "$postfix_path" ]; then
+          echo "[ERROR] 未找到模块脚本：${postfix_path}"
           continue
         fi
-        security_finish_menu
-        return 0
+        if ! bash "$postfix_path"; then
+          log_error "Postfix 模块执行失败，请检查日志后重试。"
+        fi
         ;;
-      2|3)
-        if [ "$lang" = "en" ]; then
-          log_warn "Module not ready yet."
-        else
-          log_warn "模块暂未开放，敬请期待。"
+      3)
+        if [ ! -f "$rclone_path" ]; then
+          echo "[ERROR] 未找到模块脚本：${rclone_path}"
+          continue
+        fi
+        if ! bash "$rclone_path"; then
+          log_error "Rclone 备份模块执行失败，请检查日志后重试。"
+        fi
+        ;;
+      4)
+        if [ ! -f "$healthcheck_path" ]; then
+          echo "[ERROR] 未找到模块脚本：${healthcheck_path}"
+          continue
+        fi
+        if ! bash "$healthcheck_path"; then
+          log_error "HealthCheck 模块执行失败，请检查日志后重试。"
         fi
         ;;
       0)
@@ -3093,14 +3175,15 @@ show_security_menu() {
         return 0
         ;;
       *)
-        if [ "$lang" = "en" ]; then
-          echo "Invalid choice, please try again."
-        else
-          echo "无效选项，请重试。"
-        fi
+        echo "无效选项，请重试。"
         ;;
     esac
   done
+}
+
+show_security_menu() {
+  show_ops_menu
+  return $?
 }
 
 show_optimize_menu() {
@@ -3122,14 +3205,14 @@ show_optimize_menu() {
     if [ "$lang" = "en" ]; then
       echo "=== Optimize Menu ==="
       echo "  1) 🚀 Smart Optimize Wizard"
-      echo "  2) 🛡️ Security Hardening Center"
+      echo "  2) 🛡️ Ops & Security Center"
       echo "  3) Advanced / Manual Selection"
       echo "  0) Back"
       read -rp "Choose [0-3]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) 🚀 智能优化向导"
-      echo "  2) 🛡️ 安全加固中心"
+      echo "  2) 🛡️ 运维与安全中心 (Ops & Security Center)"
       echo "  3) 🔧 高级/手动选择"
       echo "  0) 🔙 返回主菜单"
       read -rp "请输入选项 [0-3]: " choice
@@ -3145,7 +3228,7 @@ show_optimize_menu() {
         return 1
         ;;
       2)
-        show_security_menu
+        show_ops_menu
         ;;
       3)
         show_optimize_advanced_menu
