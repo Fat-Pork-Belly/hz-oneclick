@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
-ops_require_repo_root() {
-  if [ -z "${REPO_ROOT:-}" ]; then
-    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
-  fi
+if [ -z "${REPO_ROOT:-}" ]; then
+  echo "[ERROR] REPO_ROOT is not set. Cannot load Ops Menu."
+  return 1
+fi
 
-  if [ -z "${REPO_ROOT:-}" ] || [ ! -d "${REPO_ROOT}/modules" ]; then
-    echo "[ERROR] 无法定位仓库根目录或 modules 目录不存在。"
-    return 1
+if ! command -v log_info >/dev/null 2>&1; then
+  if [ -f "${REPO_ROOT}/lib/common.sh" ]; then
+    # shellcheck source=/dev/null
+    source "${REPO_ROOT}/lib/common.sh"
   fi
+fi
 
-  return 0
-}
+type log_info >/dev/null 2>&1 || log_info(){ echo "[INFO] $*"; }
+type log_ok >/dev/null 2>&1 || log_ok(){ echo "[OK] $*"; }
+type log_warn >/dev/null 2>&1 || log_warn(){ echo "[WARN] $*"; }
+type log_err >/dev/null 2>&1 || log_err(){ echo "[ERROR] $*"; }
 
 ops_pause() {
   read -r -p "按回车继续..." _
@@ -31,9 +35,11 @@ ops_root_crontab_has() {
 
 get_fail2ban_status_tag() {
   if command -v systemctl >/dev/null 2>&1; then
-    if systemctl is-active --quiet fail2ban 2>/dev/null && [ -f /etc/fail2ban/jail.local ]; then
-      echo "[已启用]"
-      return 0
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
+      if [ -f /etc/fail2ban/jail.d/99-hz-oneclick.local ] || [ -f /etc/fail2ban/jail.local ]; then
+        echo "[已启用]"
+        return 0
+      fi
     fi
   fi
 
@@ -78,11 +84,6 @@ show_ops_menu() {
   local fail2ban_path postfix_path rclone_path healthcheck_path rkhunter_path
   local module_path
 
-  if ! ops_require_repo_root; then
-    ops_pause
-    return 1
-  fi
-
   fail2ban_path="${REPO_ROOT}/modules/security/install-fail2ban.sh"
   postfix_path="${REPO_ROOT}/modules/mail/setup-postfix-relay.sh"
   rclone_path="${REPO_ROOT}/modules/backup/setup-backup-rclone.sh"
@@ -126,13 +127,13 @@ show_ops_menu() {
     esac
 
     if [ ! -f "$module_path" ]; then
-      echo "[WARN] 模块脚本不存在：${module_path}"
+      log_warn "模块脚本不存在：${module_path}"
       ops_pause
       continue
     fi
 
     if ! bash "$module_path"; then
-      echo "[WARN] 模块执行失败，请检查日志后重试。"
+      log_warn "模块执行失败，请检查日志后重试。"
     fi
     ops_pause
   done

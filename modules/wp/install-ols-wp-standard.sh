@@ -7,9 +7,7 @@ if [[ "$SCRIPT_SOURCE" != /* ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
-if [ -z "${REPO_ROOT:-}" ]; then
-  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-fi
+export REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 COMMON_LIB="${REPO_ROOT}/lib/common.sh"
 OPS_MENU_LIB="${REPO_ROOT}/lib/ops_menu_lib.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
@@ -3069,12 +3067,7 @@ show_optimize_menu() {
         return 1
         ;;
       2)
-        if declare -F show_ops_menu >/dev/null 2>&1; then
-          show_ops_menu
-        else
-          echo "[WARN] 运维中心模块库未加载，请确认仓库完整。"
-          read -rp "按回车返回 Optimize 菜单..." _
-        fi
+        show_ops_menu
         ;;
       3)
         show_optimize_advanced_menu
