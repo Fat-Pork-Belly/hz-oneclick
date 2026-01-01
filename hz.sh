@@ -10,7 +10,14 @@ log_warn() { printf '[WARN] %s\n' "$*" >&2; }
 
 HZ_ONECLICK_VERSION="v2.2.0"
 HZ_ONECLICK_BUILD="2026-01-01"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -r "${REPO_ROOT}/lib/common.sh" ]; then
+  # shellcheck source=/dev/null
+  . "${REPO_ROOT}/lib/common.sh"
+else
+  log_warn "common.sh 未找到，部分功能可能不可用。"
+fi
 
 if [ -r "${REPO_ROOT}/lib/ops_menu_lib.sh" ]; then
   # shellcheck source=/dev/null

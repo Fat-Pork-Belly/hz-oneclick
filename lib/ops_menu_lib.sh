@@ -1,18 +1,3 @@
-#!/usr/bin/env bash
-
-ops_require_repo_root() {
-  if [ -z "${REPO_ROOT:-}" ]; then
-    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
-  fi
-
-  if [ -z "${REPO_ROOT:-}" ] || [ ! -d "${REPO_ROOT}/modules" ]; then
-    echo "[ERROR] 无法定位仓库根目录或 modules 目录不存在。"
-    return 1
-  fi
-
-  return 0
-}
-
 ops_pause() {
   read -r -p "按回车继续..." _
 }
@@ -73,12 +58,42 @@ get_rkhunter_status_tag() {
   fi
 }
 
+ops_menu_define_log_fallbacks() {
+  if ! command -v log_info >/dev/null 2>&1; then
+    log_info() { echo "[INFO] $*"; }
+  fi
+  if ! command -v log_warn >/dev/null 2>&1; then
+    log_warn() { echo "[WARN] $*"; }
+  fi
+  if ! command -v log_error >/dev/null 2>&1; then
+    log_error() { echo "[ERROR] $*"; }
+  fi
+}
+
 show_ops_menu() {
   local choice
   local fail2ban_path postfix_path rclone_path healthcheck_path rkhunter_path
   local module_path
 
-  if ! ops_require_repo_root; then
+  if [ -z "${REPO_ROOT:-}" ]; then
+    echo "[ERROR] REPO_ROOT is not set."
+    return 1
+  fi
+
+  if ! command -v log_info >/dev/null 2>&1; then
+    if [ -f "${REPO_ROOT}/lib/common.sh" ]; then
+      # shellcheck source=/dev/null
+      source "${REPO_ROOT}/lib/common.sh"
+    else
+      echo "[ERROR] common.sh not found. REPO_ROOT=${REPO_ROOT}"
+      return 1
+    fi
+  fi
+
+  ops_menu_define_log_fallbacks
+
+  if [ ! -d "${REPO_ROOT}/modules" ]; then
+    log_warn "modules 目录不存在。REPO_ROOT=${REPO_ROOT}"
     ops_pause
     return 1
   fi
@@ -126,13 +141,13 @@ show_ops_menu() {
     esac
 
     if [ ! -f "$module_path" ]; then
-      echo "[WARN] 模块脚本不存在：${module_path}"
+      log_warn "模块脚本不存在：${module_path}"
       ops_pause
       continue
     fi
 
     if ! bash "$module_path"; then
-      echo "[WARN] 模块执行失败，请检查日志后重试。"
+      log_warn "模块执行失败，请检查日志后重试。"
     fi
     ops_pause
   done
