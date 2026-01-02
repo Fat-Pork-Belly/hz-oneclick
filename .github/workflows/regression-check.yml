@@ -54,13 +54,13 @@ jobs:
         run: |
           set -euo pipefail
           bash -n modules/wp/install-ols-wp-standard.sh
-          bash -n hz.sh
+          bash -n install.sh
 
       - name: ShellCheck (key scripts)
         if: steps.shellcheck.outputs.installed == 'true'
         run: |
           set -euo pipefail
-          shellcheck -x modules/wp/install-ols-wp-standard.sh hz.sh
+          shellcheck -x modules/wp/install-ols-wp-standard.sh install.sh
 
       - name: Forbidden terms in user-facing output
         run: |
@@ -68,7 +68,7 @@ jobs:
           shopt -s nullglob globstar
 
           scripts=(
-            hz.sh
+            install.sh
             modules/**/*.sh
             lib/**/*.sh
           )
