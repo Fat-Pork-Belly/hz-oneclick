@@ -11,7 +11,6 @@ if [ -z "${REPO_ROOT:-}" ]; then
   REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 COMMON_LIB="${REPO_ROOT}/lib/common.sh"
-OPS_MENU_LIB="${REPO_ROOT}/lib/ops_menu_lib.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
 BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
@@ -74,13 +73,6 @@ LSPHP_TUNING_STATUS="pending"
 if [ -r "$COMMON_LIB" ]; then
   # shellcheck source=/dev/null
   . "$COMMON_LIB"
-fi
-
-if [ -r "$OPS_MENU_LIB" ]; then
-  # shellcheck source=/dev/null
-  . "$OPS_MENU_LIB"
-else
-  echo "[WARN] 运维中心模块库未找到，运维与安全中心菜单不可用。"
 fi
 
 if [ -r "$BASELINE_LIB" ]; then
@@ -546,57 +538,6 @@ optimize_finish_menu() {
         exit 0
         ;;
       0)
-        exit 0
-        ;;
-      *)
-        if [ "$lang" = "en" ]; then
-          echo "Invalid choice, please try again."
-        else
-          echo "无效选项，请重试。"
-        fi
-        ;;
-    esac
-  done
-}
-
-security_finish_menu() {
-  local lang choice
-  lang="$(get_finish_lang)"
-
-  if [ ! -t 0 ]; then
-    return 0
-  fi
-
-  while true; do
-    echo
-    if [ "$lang" = "en" ]; then
-      echo "=== Security Complete ==="
-      echo "  1) Return to Security menu"
-      echo "  2) Return to Optimize menu"
-      echo "  0) Return to main menu / Exit"
-      read -rp "Choose [0-2]: " choice
-    else
-      echo "=== Security 完成 ==="
-      echo "  1) 返回安全加固中心"
-      echo "  2) 返回 Optimize 菜单"
-      echo "  0) 返回主菜单 / 退出"
-      read -rp "请输入选项 [0-2]: " choice
-    fi
-
-    case "$choice" in
-      1)
-        show_ops_menu
-        return
-        ;;
-      2)
-        show_optimize_menu
-        return
-        ;;
-      0)
-        if is_menu_context; then
-          show_main_menu
-          return
-        fi
         exit 0
         ;;
       *)
@@ -3022,11 +2963,6 @@ show_optimize_advanced_menu() {
   done
 }
 
-show_security_menu() {
-  show_ops_menu
-  return $?
-}
-
 show_optimize_menu() {
   local lang choice
   lang="$(get_finish_lang)"
@@ -3044,44 +2980,38 @@ show_optimize_menu() {
   while true; do
     echo
     if [ "$lang" = "en" ]; then
-      echo "=== Optimize Menu ==="
-      echo "  1) 🚀 Smart Optimize Wizard"
-      echo "  2) 🛡️ Ops & Security Center"
-      echo "  3) Advanced / Manual Selection"
-      echo "  0) Back"
-      read -rp "Choose [0-3]: " choice
+      echo "=== LOMP Lite Menu ==="
+      echo "  1) Install WordPress"
+      echo "  2) Install/Config Redis"
+      echo "  0) Back / Exit"
+      read -rp "Choose [0-2]: " choice
     else
-      echo "=== Optimize 菜单 ==="
-      echo "  1) 🚀 智能优化向导"
-      echo "  2) 🛡️ 运维与安全中心"
-      echo "  3) 🔧 高级/手动选择"
-      echo "  0) 🔙 返回主菜单"
-      read -rp "请输入选项 [0-3]: " choice
+      echo "=== LOMP Lite 菜单 ==="
+      echo "  1) 安装 WordPress"
+      echo "  2) 安装/配置 Redis"
+      echo "  0) 返回/退出"
+      read -rp "请输入选项 [0-2]: " choice
     fi
 
     case "$choice" in
       1)
-        if run_optimize_wizard; then
-          optimize_finish_menu
-          return 0
-        fi
-        optimize_finish_menu
-        return 1
+        resolve_optimize_site_context
+        ensure_wp_core_installed || log_warn "WordPress 初始化未完成。"
         ;;
       2)
-        if declare -F show_ops_menu >/dev/null 2>&1; then
-          show_ops_menu
-        else
-          echo "[WARN] 运维中心模块库未加载，请确认仓库完整。"
-          read -rp "按回车返回 Optimize 菜单..." _
+        resolve_optimize_site_context
+        prompt_redis_info_lite
+        if [ "${REDIS_ENABLED:-no}" = "yes" ]; then
+          test_redis_connection_lite || log_warn "Redis 连通性测试未通过。"
+          ensure_wp_redis_config
         fi
         ;;
-      3)
-        show_optimize_advanced_menu
-        ;;
       0)
-        show_main_menu
-        return
+        if is_menu_context; then
+          show_main_menu
+          return
+        fi
+        exit 0
         ;;
       *)
         if [ "$lang" = "en" ]; then
