@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 
-ops_require_repo_root() {
-  if [ -z "${REPO_ROOT:-}" ]; then
-    REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
-  fi
+if [ -z "${REPO_ROOT:-}" ]; then
+  echo "❌ Fatal: REPO_ROOT is not set. Please run this via hz.sh or install script."
+  return 1
+fi
 
+if ! command -v log_info >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  source "${REPO_ROOT}/lib/common.sh"
+fi
+
+ops_require_repo_root() {
   if [ -z "${REPO_ROOT:-}" ] || [ ! -d "${REPO_ROOT}/modules" ]; then
     echo "[ERROR] 无法定位仓库根目录或 modules 目录不存在。"
     return 1
