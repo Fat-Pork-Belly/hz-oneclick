@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
+# modules/wp/install-ols-wp-standard.sh
+# Version: v2.2.0
 set -Eeo pipefail
 
-SCRIPT_SOURCE="${BASH_SOURCE[0]}"
-if [[ "$SCRIPT_SOURCE" != /* ]]; then
-  SCRIPT_SOURCE="$(pwd)/${SCRIPT_SOURCE}"
+# Define Root relative to this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/lib/common.sh"
+if [[ -f "${REPO_ROOT}/lib/ops_menu_lib.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${REPO_ROOT}/lib/ops_menu_lib.sh"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
-if [ -z "${REPO_ROOT:-}" ]; then
-  REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-fi
-COMMON_LIB="${REPO_ROOT}/lib/common.sh"
-OPS_MENU_LIB="${REPO_ROOT}/lib/ops_menu_lib.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
 BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
@@ -70,18 +72,6 @@ LSPHP_EXTENSIONS_APT_UPDATED=0
 LSPHP_TUNING_STATUS="pending"
 : "${INSTALL_MODE:=full}"
 : "${WP_INSTALL_SKIPPED:=0}"
-
-if [ -r "$COMMON_LIB" ]; then
-  # shellcheck source=/dev/null
-  . "$COMMON_LIB"
-fi
-
-if [ -r "$OPS_MENU_LIB" ]; then
-  # shellcheck source=/dev/null
-  . "$OPS_MENU_LIB"
-else
-  echo "[WARN] 运维中心模块库未找到，运维与安全中心菜单不可用。"
-fi
 
 if [ -r "$BASELINE_LIB" ]; then
   # shellcheck source=/dev/null
