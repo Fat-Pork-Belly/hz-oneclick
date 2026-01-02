@@ -11,7 +11,6 @@ if [ -z "${REPO_ROOT:-}" ]; then
   REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 fi
 COMMON_LIB="${REPO_ROOT}/lib/common.sh"
-OPS_MENU_LIB="${REPO_ROOT}/lib/ops_menu_lib.sh"
 # [ANCHOR:CH20_BASELINE_SOURCE]
 BASELINE_LIB="${REPO_ROOT}/lib/baseline.sh"
 BASELINE_HTTPS_LIB="${REPO_ROOT}/lib/baseline_https.sh"
@@ -74,13 +73,6 @@ LSPHP_TUNING_STATUS="pending"
 if [ -r "$COMMON_LIB" ]; then
   # shellcheck source=/dev/null
   . "$COMMON_LIB"
-fi
-
-if [ -r "$OPS_MENU_LIB" ]; then
-  # shellcheck source=/dev/null
-  . "$OPS_MENU_LIB"
-else
-  echo "[WARN] 运维中心模块库未找到，运维与安全中心菜单不可用。"
 fi
 
 if [ -r "$BASELINE_LIB" ]; then
@@ -571,24 +563,18 @@ security_finish_menu() {
     echo
     if [ "$lang" = "en" ]; then
       echo "=== Security Complete ==="
-      echo "  1) Return to Security menu"
-      echo "  2) Return to Optimize menu"
+      echo "  1) Return to Optimize menu"
       echo "  0) Return to main menu / Exit"
-      read -rp "Choose [0-2]: " choice
+      read -rp "Choose [0-1]: " choice
     else
       echo "=== Security 完成 ==="
-      echo "  1) 返回安全加固中心"
-      echo "  2) 返回 Optimize 菜单"
+      echo "  1) 返回 Optimize 菜单"
       echo "  0) 返回主菜单 / 退出"
-      read -rp "请输入选项 [0-2]: " choice
+      read -rp "请输入选项 [0-1]: " choice
     fi
 
     case "$choice" in
       1)
-        show_ops_menu
-        return
-        ;;
-      2)
         show_optimize_menu
         return
         ;;
@@ -3022,11 +3008,6 @@ show_optimize_advanced_menu() {
   done
 }
 
-show_security_menu() {
-  show_ops_menu
-  return $?
-}
-
 show_optimize_menu() {
   local lang choice
   lang="$(get_finish_lang)"
@@ -3046,17 +3027,15 @@ show_optimize_menu() {
     if [ "$lang" = "en" ]; then
       echo "=== Optimize Menu ==="
       echo "  1) 🚀 Smart Optimize Wizard"
-      echo "  2) 🛡️ Ops & Security Center"
-      echo "  3) Advanced / Manual Selection"
+      echo "  2) Advanced / Manual Selection"
       echo "  0) Back"
-      read -rp "Choose [0-3]: " choice
+      read -rp "Choose [0-2]: " choice
     else
       echo "=== Optimize 菜单 ==="
       echo "  1) 🚀 智能优化向导"
-      echo "  2) 🛡️ 运维与安全中心"
-      echo "  3) 🔧 高级/手动选择"
+      echo "  2) 🔧 高级/手动选择"
       echo "  0) 🔙 返回主菜单"
-      read -rp "请输入选项 [0-3]: " choice
+      read -rp "请输入选项 [0-2]: " choice
     fi
 
     case "$choice" in
@@ -3069,14 +3048,6 @@ show_optimize_menu() {
         return 1
         ;;
       2)
-        if declare -F show_ops_menu >/dev/null 2>&1; then
-          show_ops_menu
-        else
-          echo "[WARN] 运维中心模块库未加载，请确认仓库完整。"
-          read -rp "按回车返回 Optimize 菜单..." _
-        fi
-        ;;
-      3)
         show_optimize_advanced_menu
         ;;
       0)
