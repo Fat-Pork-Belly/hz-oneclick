@@ -1,0 +1,32 @@
+name: ShellCheck
+
+on:
+  push:
+    branches:
+      - main
+      - work
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          shopt -s globstar nullglob
+          files=(**/*.sh)
+          if (( ${#files[@]} == 0 )); then
+            echo "No .sh files found."
+            exit 0
+          fi
+          shellcheck -x -e SC1091,SC2148 "${files[@]}"
