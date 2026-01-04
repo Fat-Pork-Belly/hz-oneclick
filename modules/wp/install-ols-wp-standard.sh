@@ -6069,7 +6069,7 @@ apply_lsphp_ini_tuning() {
       echo
       echo "$begin_marker"
       echo "upload_max_filesize = 64M"
-      echo "post_max_size = 128M"
+      echo 'post_max_size = 128M'
       echo "memory_limit = 256M"
       echo "$end_marker"
     } >>"$candidate"
@@ -6208,7 +6208,6 @@ apply_wp_site_health_baseline() {
   local wp_config="${DOC_ROOT}/wp-config.php"
   local wp_content="${DOC_ROOT}/wp-content"
   local summary=()
-  local tier="${BASELINE_TIER:-$TIER_STANDARD}"
   local domain https_url
   local php_bin php_ini
   local ini_hash_before ini_hash_after
@@ -8182,6 +8181,11 @@ fix_permissions() {
   chown -R nobody:nogroup "$base"
   find "$base" -type d -exec chmod 755 {} +
   find "$base" -type f -exec chmod 644 {} +
+  # Harden wp-config.php
+  if [ -f "${doc_root}/wp-config.php" ]; then
+    chown nobody:nogroup "${doc_root}/wp-config.php" || true
+    chmod 600 "${doc_root}/wp-config.php" || true
+  fi
 
   if [ -f "${doc_root}/wp-config.php" ]; then
     # Guardrail: ensure owner is web user
