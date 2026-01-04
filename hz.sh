@@ -32,6 +32,7 @@ if [[ ! -d "./.git" || ! -f "./lib/common.sh" ]]; then
 
   chmod +x "${INSTALL_DIR}/hz.sh"
   cd "${INSTALL_DIR}" || exit 1
+  cd "${INSTALL_DIR}" || exit 1
   exec "${INSTALL_DIR}/hz.sh" "$@"
 fi
 
