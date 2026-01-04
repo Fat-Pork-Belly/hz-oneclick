@@ -8183,11 +8183,9 @@ fix_permissions() {
   find "$base" -type d -exec chmod 755 {} +
   find "$base" -type f -exec chmod 644 {} +
 
-  # [Security] Hardening wp-config.php (Baseline v2.2.0)
+  # [Security] Hardening wp-config.php (Guardrail)
   if [ -f "${doc_root}/wp-config.php" ]; then
-    # 再次确保 owner 正确 (防呆)
     chown nobody:nogroup "${doc_root}/wp-config.php" || true
-    # 强制设为 600 (仅 owner 可读写)
     chmod 600 "${doc_root}/wp-config.php" || true
     log_info "已加固 wp-config.php 权限为 600 (Owner only)。"
   fi
