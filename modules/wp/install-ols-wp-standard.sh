@@ -352,13 +352,13 @@ docker_mysql_client_secure() {
     status=$?
     rm -f "$tmp"
     exit "$status"
-  ' sh "$client" "$@" 3<<EOF
+  ' sh "$client" "$@" 3<<HZEOF
 [client]
 user=${user}
 password=${password}
 ${host:+host=${host}}
 ${port:+port=${port}}
-EOF
+HZEOF
 }
 
 is_menu_context() {
@@ -3422,9 +3422,9 @@ detect_system_profile() {
   fi
 
   if command -v df >/dev/null 2>&1; then
-    read -r disk_total_raw disk_avail_raw <<EOF
+    read -r disk_total_raw disk_avail_raw <<HZEOF
 $(df -B1 / 2>/dev/null | awk 'NR==2 {print $2, $4}')
-EOF
+HZEOF
   fi
 
   if echo "$disk_total_raw" | grep -Eq '^[0-9]+$'; then
@@ -5408,7 +5408,7 @@ warn_lite_db_non_empty() {
   echo "WordPress 安装到非空数据库可能失败，或覆盖已有数据。"
   echo
   echo -e "${CYAN}---- Host-side Fix Hint（仅供参考，不会自动执行） ----${NC}"
-  cat <<'EOF'
+  cat <<'HZEOF'
 列出表（安全）：
   SHOW TABLES FROM `<DB_NAME>`;
   SELECT table_name FROM information_schema.tables WHERE table_schema='<DB_NAME>';
@@ -5417,7 +5417,7 @@ warn_lite_db_non_empty() {
   SELECT CONCAT('DROP TABLE `', table_name, '`;') AS drop_sql
   FROM information_schema.tables WHERE table_schema='<DB_NAME>';
   -- 请确认后手动执行生成的 DROP TABLE 语句
-EOF
+HZEOF
   echo
   echo "请选择："
   echo "  1) 中止安装，先手动清理数据库"
@@ -5664,7 +5664,7 @@ print_lite_db_host_fix_guide() {
   echo -e "${CYAN}---- DB host-side fix guide (run on the DB server) ----${NC}"
   echo "请先确认数据库监听在预期接口/端口（例如 ${DB_HOST}:${DB_PORT}），且防火墙已放行。"
   echo "建议的 DB_USER_HOST：${suggested_host}（仅供参考，'%' 代表更广泛的来源访问）"
-  cat <<EOF
+  cat <<HZEOF
 SQL 模板：
   CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;
   CREATE USER '${DB_USER}'@'${suggested_host}' IDENTIFIED BY '<DB_PASSWORD>';
@@ -5675,7 +5675,7 @@ SQL 模板：
   SHOW DATABASES LIKE '${DB_NAME}';
   SELECT User,Host FROM mysql.user WHERE User='${DB_USER}';
   SHOW GRANTS FOR '${DB_USER}'@'<DB_USER_HOST>';
-EOF
+HZEOF
   echo
   echo "说明：'user'@'%' 与 'user'@'IP' 是不同账号，SHOW GRANTS 的 Host 必须精确匹配。"
   echo "如使用容器部署数据库，请确认端口已发布到预期接口，并放行防火墙。"
@@ -6063,7 +6063,6 @@ apply_lsphp_ini_tuning() {
 
     sed -i -E "/^[[:space:]]*;[[:space:]]*HZ-ONECLICK TUNING BEGIN/,/^[[:space:]]*;[[:space:]]*HZ-ONECLICK TUNING END/d" "$candidate"
     sed -i -E "s|^[[:space:]]*upload_max_filesize[[:space:]]*=|;(hz-oneclick) upload_max_filesize =|" "$candidate"
-    sed -i -E "s|^[[:space:]]*post_max_size[[:space:]]*=|;(hz-oneclick) post_max_size =|" "$candidate"
     sed -i -E "s|^[[:space:]]*memory_limit[[:space:]]*=|;(hz-oneclick) memory_limit =|" "$candidate"
     {
       echo
@@ -7355,7 +7354,7 @@ setup_vhost_config() {
   mkdir -p "$VH_CONF_DIR" "$DOC_ROOT" "${VH_ROOT}/logs"
 
   if ! grep -q "virtualhost ${SITE_SLUG}" "$HTTPD_CONF"; then
-    cat >>"$HTTPD_CONF" <<EOF
+    cat >>"$HTTPD_CONF" <<HZEOF
 
 virtualhost ${SITE_SLUG} {
   vhRoot                  ${VH_ROOT}/
@@ -7364,14 +7363,14 @@ virtualhost ${SITE_SLUG} {
   enableScript            1
   restrained              0
 }
-EOF
+HZEOF
     log_info "已在 httpd_config.conf 中添加 virtualhost ${SITE_SLUG}。"
   else
     log_info "virtualhost ${SITE_SLUG} 已存在，跳过。"
   fi
 
   if [ ! -f "$VH_CONF_FILE" ]; then
-    cat >"$VH_CONF_FILE" <<EOF
+    cat >"$VH_CONF_FILE" <<HZEOF
 docRoot                   \$VH_ROOT/html/
 enableGzip                1
 
@@ -7401,7 +7400,7 @@ rewrite  {
 context / {
   allowBrowse             1
 }
-EOF
+HZEOF
     log_info "已生成 vhost 配置文件: ${VH_CONF_FILE}"
   else
     log_info "vhost 配置文件已存在: ${VH_CONF_FILE}"
@@ -7409,14 +7408,14 @@ EOF
 
   # HTTP 监听器
   if ! grep -q "^listener http" "$HTTPD_CONF"; then
-    cat >>"$HTTPD_CONF" <<EOF
+    cat >>"$HTTPD_CONF" <<HZEOF
 
 listener http {
   address                 *:80
   secure                  0
   map                     ${SITE_SLUG} ${SITE_DOMAIN}
 }
-EOF
+HZEOF
     log_info "已创建 listener http 并映射到 ${SITE_SLUG} / ${SITE_DOMAIN}。"
   else
     if ! awk "/^listener http /,/^}/" "$HTTPD_CONF" | grep -q "map[[:space:]]\+${SITE_SLUG}[[:space:]]\+${SITE_DOMAIN}"; then
@@ -7506,7 +7505,7 @@ setup_site_size_limit_monitor() {
   SITE_SIZE_CHECK_SERVICE="/etc/systemd/system/wp-site-size-check-${slug}.service"
   SITE_SIZE_CHECK_TIMER="/etc/systemd/system/wp-site-size-check-${slug}.timer"
 
-  cat >"$SITE_SIZE_CHECK_SCRIPT" <<EOF
+  cat >"$SITE_SIZE_CHECK_SCRIPT" <<HZEOF
 #!/usr/bin/env bash
 set -Eeo pipefail
 
@@ -7543,20 +7542,20 @@ if [ "\$size_mb" -gt "\$limit_mb" ]; then
     log_warn "\$msg"
   fi
 fi
-EOF
+HZEOF
 
   chmod +x "$SITE_SIZE_CHECK_SCRIPT"
 
-  cat >"$SITE_SIZE_CHECK_SERVICE" <<EOF
+  cat >"$SITE_SIZE_CHECK_SERVICE" <<HZEOF
 [Unit]
 Description=WordPress site size check (${slug})
 
 [Service]
 Type=oneshot
 ExecStart=${SITE_SIZE_CHECK_SCRIPT}
-EOF
+HZEOF
 
-  cat >"$SITE_SIZE_CHECK_TIMER" <<EOF
+  cat >"$SITE_SIZE_CHECK_TIMER" <<HZEOF
 [Unit]
 Description=Run WordPress site size check (${slug}) hourly
 
@@ -7566,7 +7565,7 @@ Persistent=true
 
 [Install]
 WantedBy=timers.target
-EOF
+HZEOF
 
   systemctl daemon-reload
   systemctl enable --now "wp-site-size-check-${slug}.timer"
@@ -8292,7 +8291,7 @@ configure_ssl() {
       chmod 600 "$cert_file" "$key_file"
 
       if ! grep -q "^listener https" "$HTTPD_CONF"; then
-        cat >>"$HTTPD_CONF" <<EOF
+        cat >>"$HTTPD_CONF" <<HZEOF
 
 listener https {
   address                 *:443
@@ -8301,7 +8300,7 @@ listener https {
   certFile                ${cert_file}
   map                     ${SITE_SLUG} ${SITE_DOMAIN}
 }
-EOF
+HZEOF
       else
         awk -v keyf="$key_file" -v certf="$cert_file" '
           BEGIN{inh=0}
@@ -8347,7 +8346,7 @@ EOF
       fi
 
       if ! grep -q "^listener https" "$HTTPD_CONF"; then
-        cat >>"$HTTPD_CONF" <<EOF
+        cat >>"$HTTPD_CONF" <<HZEOF
 
 listener https {
   address                 *:443
@@ -8356,7 +8355,7 @@ listener https {
   certFile                ${cert_path}
   map                     ${SITE_SLUG} ${SITE_DOMAIN}
 }
-EOF
+HZEOF
       else
         awk -v keyf="$key_path" -v certf="$cert_path" '
           BEGIN{inh=0}
