@@ -673,7 +673,7 @@ opt_prepare_context() {
   return 0
 }
 
-opt_task_fix_permissions() {
+opt_task_ffix_permissions() {
   local lang
   lang="$(get_finish_lang)"
 
@@ -8161,7 +8161,7 @@ run_loopback_preflight() {
   esac
 }
 
-fix_permissions() {
+ffix_permissions() {
   # [ANCHOR:SET_PERMISSIONS]
   log_step "修复站点目录权限"
 

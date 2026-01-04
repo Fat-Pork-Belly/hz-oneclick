@@ -1,0 +1,23 @@
+name: Lint Shell Scripts
+
+on:
+  push:
+    branches: [ "main", "work" ]
+  pull_request:
+    branches: [ "main", "work" ]
+
+jobs:
+  shellcheck:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Bash Syntax Check
+        run: |
+          find . -name "*.sh" -print0 | xargs -0 bash -n
+
+      - name: ShellCheck (Errors Only)
+        run: shellcheck -x -S error -e SC1091 **/*.sh
+
