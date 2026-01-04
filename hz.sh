@@ -5,6 +5,10 @@ set -e
 
 FILE="modules/wp/install-ols-wp-standard.sh"
 
+log_action() {
+    echo "-> $1"
+}
+
 echo "=== 开始修复 install-ols-wp-standard.sh ==="
 
 # 1. 检查文件是否存在
@@ -15,17 +19,17 @@ if [ ! -f "$FILE" ]; then
 fi
 
 # 2. 修复 PHP 参数 (64M -> 128M)
-echo "-> 修正 PHP post_max_size..."
+log_action "修正 PHP post_max_size..."
 sed -i 's/echo "post_max_size = 64M"/echo "post_max_size = 128M"/' "$FILE"
 
 # 3. 移除 Lite 档位的降级逻辑
 #    逻辑：找到包含 TIER_LITE 的if块，并删除它及接下来的 3 行
-echo "-> 移除 Lite 档位降级代码..."
+log_action "移除 Lite 档位降级代码..."
 sed -i '/if \[ "\$tier" = "\$TIER_LITE" \]; then/,+3d' "$FILE"
 
 # 4. 插入权限加固 (chmod 600)
 #    逻辑：在 'find ... chmod 644' 这一行后面插入安全代码块
-echo "-> 插入 wp-config.php 权限加固代码..."
+log_action "插入 wp-config.php 权限加固代码..."
 
 # 定义要插入的代码块 (使用临时文件避免转义地狱)
 cat > /tmp/security_patch.txt <<EOF

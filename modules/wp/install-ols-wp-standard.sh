@@ -8181,22 +8181,6 @@ fix_permissions() {
   chown -R nobody:nogroup "$base"
   find "$base" -type d -exec chmod 755 {} +
   find "$base" -type f -exec chmod 644 {} +
-  # [Security] Harden wp-config.php
-
-  if [ -f "${doc_root}/wp-config.php" ]; then
-
-    chown nobody:nogroup "${doc_root}/wp-config.php"
-
-    chmod 600 "${doc_root}/wp-config.php"
-
-    log_info "Secured wp-config.php (chmod 600)."
-
-  fi
-  # Harden wp-config.php
-  if [ -f "${doc_root}/wp-config.php" ]; then
-    chown nobody:nogroup "${doc_root}/wp-config.php" || true
-    chmod 600 "${doc_root}/wp-config.php" || true
-  fi
 
   if [ -f "${doc_root}/wp-config.php" ]; then
     # Guardrail: ensure owner is web user
