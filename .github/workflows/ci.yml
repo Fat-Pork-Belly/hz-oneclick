@@ -1,0 +1,26 @@
+name: Lint Shell Scripts
+
+on:
+  push:
+    branches: [ "main", "work" ]
+  pull_request:
+    branches: [ "main", "work" ]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        # -x: follow sourced files
+        # -e SC1091: ignore "not following: file not found"
+        # -e SC2148: ignore missing shebang in partial libs
+        run: shellcheck -x -e SC1091,SC2148 **/*.sh
