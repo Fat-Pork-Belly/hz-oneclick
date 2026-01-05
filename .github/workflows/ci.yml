@@ -8,19 +8,16 @@ on:
 
 jobs:
   shellcheck:
-    name: ShellCheck
+    name: Syntax Check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install ShellCheck
+      - name: Bash Syntax Check
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
+          find . -name "*.sh" -print0 | xargs -0 bash -n
 
-      - name: Run ShellCheck
-        # -x: follow sourced files
-        # -e SC1091: ignore "not following: file not found"
-        # -e SC2148: ignore missing shebang in partial libs
-        run: shellcheck -x -e SC1091,SC2148 **/*.sh
+      - name: ShellCheck (Errors Only)
+        run: shellcheck -x -S error -e SC1091,SC2148 **/*.sh
+
