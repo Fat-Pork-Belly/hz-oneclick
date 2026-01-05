@@ -14,10 +14,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
       - name: Bash Syntax Check
         run: |
+          set -euo pipefail
           find . -name "*.sh" -print0 | xargs -0 bash -n
 
       - name: ShellCheck (Errors Only)
-        run: shellcheck -x -S error -e SC1091,SC2148 **/*.sh
-
+        run: |
+          set -euo pipefail
+          find . -name "*.sh" -print0 | xargs -0 shellcheck -S error -x
