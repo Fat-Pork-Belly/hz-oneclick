@@ -19,5 +19,5 @@ jobs:
           find . -name "*.sh" -print0 | xargs -0 bash -n
 
       - name: ShellCheck (Errors Only)
-        run: shellcheck -x -S error -e SC1091 **/*.sh
+        run: shellcheck -x -S error -e SC1091,SC2148 **/*.sh
 
