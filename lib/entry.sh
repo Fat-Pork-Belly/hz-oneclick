@@ -25,18 +25,19 @@ print_c() { printf "%b\n" "$*"; }
 show_logo() {
   print_c "${C_CYAN}"
   cat <<'ART'
- _   _ ______       ____              _ _      _
-| | | |___  /      / __ \            (_) |    | |
-| |_| |  / /______| |  | |_ __   ___  _| | ___| | __
-|  _  | / /|______| |  | | '_ \ / _ \| | |/ __| |/ /
-| | | |/ /__      | |__| | | | | (_) | | | (__|   <
-\_| |_/_____|      \____/|_| |_|\___/|_|_|\___|_|\_\
+ _   _                 _                        __     _____ _ _      _
+| | | |               (_)                      /  |   /  __ \ (_)    | |
+| |_| | ___  _ __ ___  _ _______  _ __ ______  `| |   | /  \/ |_  ___| | __
+|  _  |/ _ \| '__/ _ \| |_  / _ \| '_ \______|  | |   | |   | | |/ __| |/ /
+| | | | (_) | | | (_) | |/ / (_) | | | |      _| |_  | \__/\ | | (__|   <
+\_| |_/\___/|_|  \___/|_/___\___/|_| |_|      \___/   \____/_|_|\___|_|\_\
+
 ART
   print_c "${C_RESET}"
+  print_c "${C_DIM}Version:${C_RESET} ${VERSION}"
   print_c "${C_DIM}Website:${C_RESET} ${WEB_URL}"
   print_c "${C_DIM}GitHub:${C_RESET}  ${REPO_URL}"
-  print_c "${C_DIM}Author:${C_RESET}  ${AUTHOR}"
-  print_c "${C_DIM}Version:${C_RESET} ${VERSION}"
+  print_c "${C_DIM}Powered by:${C_RESET} Pork Belly"
   echo
 }
 
