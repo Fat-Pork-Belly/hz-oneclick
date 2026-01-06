@@ -1,4 +1,31 @@
 #!/usr/bin/env bash
+# --- v3.0 Sanitization (no hardcoded secrets/domains) ---
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
+cd "${REPO_ROOT}"
+
+# Admin / DB identifiers (override via env or prompt upstream if desired)
+: "${OLS_ADMIN_USER:=admin}"
+: "${wp_db_main:=wp_db_main}"
+: "${wp_user_main:=wp_user_main}"
+
+# Generate passwords if not provided (never hardcode defaults)
+gen_pw() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -base64 18 | tr -d '\n' | tr '/+' 'Aa' | cut -c1-16
+  else
+    head -c 32 /dev/urandom 2>/dev/null | base64 | tr -d '\n' | tr '/+' 'Aa' | cut -c1-16
+  fi
+}
+
+if [ -z "${OLS_ADMIN_PASS:-}" ]; then
+  OLS_ADMIN_PASS="$(gen_pw)"
+fi
+
+if [ -z "${WP_ADMIN_PASS:-}" ]; then
+  WP_ADMIN_PASS="$(gen_pw)"
+fi
+# --- end v3.0 Sanitization ---
 set -Eeo pipefail
 
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
@@ -4617,7 +4644,7 @@ cleanup_db_interactive() {
   read -rp "DB Port（默认 3306）: " DB_PORT
   DB_PORT="${DB_PORT:-3306}"
 
-  read -rp "要删除的 DB 名称（例如: ols_wp）: " DB_NAME
+  read -rp "要删除的 DB 名称（例如: wp_db_main）: " DB_NAME
   if [ -z "$DB_NAME" ]; then
     log_warn "DB 名称不能为空。"
     read -rp "按回车返回 '清理数据库 / Redis' 菜单..." _
@@ -4625,7 +4652,7 @@ cleanup_db_interactive() {
     return
   fi
 
-  read -rp "要删除的 DB 用户名（例如: ols_user）: " DB_USER
+  read -rp "要删除的 DB 用户名（例如: OLS_ADMIN_USER）: " DB_USER
   if [ -z "$DB_USER" ]; then
     log_warn "DB 用户名不能为空。"
     read -rp "按回车返回 '清理数据库 / Redis' 菜单..." _
