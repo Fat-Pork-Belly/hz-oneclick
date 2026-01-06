@@ -109,6 +109,9 @@ run_module_menu() {
     ops)
       show_ops_menu "$lang"
       ;;
+    ops)
+      show_ops_menu "$lang"
+      ;;
     media|ops|net|check)
       if [ "$lang" = "cn" ]; then
         echo "模块占位符：${category}"
