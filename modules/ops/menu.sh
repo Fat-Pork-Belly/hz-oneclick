@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-_run_script_or_warn() {
+_run_or_warn() {
   local script="$1"
   if [ -f "$script" ]; then
     bash "$script"
@@ -24,10 +24,10 @@ show_ops_menu() {
       echo "[q] 退出"
       read -r -p "> " c
       case "$c" in
-        1) _run_script_or_warn ./modules/security/install-fail2ban.sh ;;
-        2) _run_script_or_warn ./modules/backup/setup-backup-rclone.sh ;;
-        3) _run_script_or_warn ./modules/monitor/setup-healthcheck.sh ;;
-        4) _run_script_or_warn ./modules/mail/setup-postfix-relay.sh ;;
+        1) _run_or_warn ./modules/security/install-fail2ban.sh ;;
+        2) _run_or_warn ./modules/backup/setup-backup-rclone.sh ;;
+        3) _run_or_warn ./modules/monitor/setup-healthcheck.sh ;;
+        4) _run_or_warn ./modules/mail/setup-postfix-relay.sh ;;
         0) return 0 ;;
         q|Q) exit 0 ;;
         *) echo "输入无效"; read -r -p "按回车继续..." _ ;;
@@ -42,10 +42,10 @@ show_ops_menu() {
       echo "[q] Exit"
       read -r -p "> " c
       case "$c" in
-        1) _run_script_or_warn ./modules/security/install-fail2ban.sh ;;
-        2) _run_script_or_warn ./modules/backup/setup-backup-rclone.sh ;;
-        3) _run_script_or_warn ./modules/monitor/setup-healthcheck.sh ;;
-        4) _run_script_or_warn ./modules/mail/setup-postfix-relay.sh ;;
+        1) _run_or_warn ./modules/security/install-fail2ban.sh ;;
+        2) _run_or_warn ./modules/backup/setup-backup-rclone.sh ;;
+        3) _run_or_warn ./modules/monitor/setup-healthcheck.sh ;;
+        4) _run_or_warn ./modules/mail/setup-postfix-relay.sh ;;
         0) return 0 ;;
         q|Q) exit 0 ;;
         *) echo "Invalid choice"; read -r -p "Press Enter to continue..." _ ;;
