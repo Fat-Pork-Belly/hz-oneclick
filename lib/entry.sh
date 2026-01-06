@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_FILE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/VERSION"
+VERSION_FILE="$(pwd)/VERSION"
 
 VERSION="v3.0.0-alpha"
 if [ -f "$VERSION_FILE" ]; then
@@ -44,8 +44,6 @@ detect_virt() {
   local v="unknown"
   if command -v systemd-detect-virt >/dev/null 2>&1; then
     v="$(systemd-detect-virt 2>/dev/null || echo unknown)"
-  elif [ -f /proc/1/environ ] && tr '\0' '\n' </proc/1/environ | grep -qi container; then
-    v="container"
   fi
   echo "$v"
 }
@@ -82,7 +80,63 @@ check_sys_env() {
   echo
 }
 
-pause() { read -r -p "Press Enter to continue..." _; }
+pause_en() { read -r -p "Press Enter to continue..." _; }
+pause_cn() { read -r -p "按回车继续..." _; }
+
+run_module_menu() {
+  local category="${1:-}"
+  local lang="${2:-en}"
+
+  if [ -z "$category" ]; then
+    echo "ERROR: missing category"
+    return 1
+  fi
+
+  local menu_file="./modules/${category}/menu.sh"
+  if [ ! -f "$menu_file" ]; then
+    echo "ERROR: missing module menu: $menu_file"
+    return 1
+  fi
+
+  # shellcheck source=/dev/null
+  source "$menu_file"
+
+  case "$category" in
+    web)
+      show_web_menu "$lang"
+      ;;
+    media|ops|net|check)
+      if [ "$lang" = "cn" ]; then
+        echo "模块占位符：${category}"
+        pause_cn
+      else
+        echo "Module placeholder: ${category}"
+        pause_en
+      fi
+      ;;
+    *)
+      echo "ERROR: unsupported category: $category"
+      return 1
+      ;;
+  esac
+}
+
+root_menu() {
+  while true; do
+    show_logo
+    echo "Select Language / 选择语言"
+    echo "[1] English"
+    echo "[2] Chinese"
+    echo "[0] Exit"
+    read -r -p "> " c
+    case "$c" in
+      1) show_main_menu_en ;;
+      2) show_main_menu_cn ;;
+      0) exit 0 ;;
+      *) echo "Invalid choice"; pause_en ;;
+    esac
+  done
+}
 
 show_main_menu_en() {
   while true; do
@@ -96,14 +150,14 @@ show_main_menu_en() {
     echo "[q] Exit"
     read -r -p "> " c
     case "$c" in
-      1) echo "Entering Web Menu..."; pause ;;
-      2) echo "Entering Media Menu..."; pause ;;
-      3) echo "Entering Ops Menu..."; pause ;;
-      4) echo "Entering Net Menu..."; pause ;;
-      5) echo "Running Check..."; check_sys_env; pause ;;
+      1) run_module_menu web en ;;
+      2) run_module_menu media en ;;
+      3) run_module_menu ops en ;;
+      4) run_module_menu net en ;;
+      5) run_module_menu check en ;;
       0) return 0 ;;
       q|Q) exit 0 ;;
-      *) echo "Invalid choice."; pause ;;
+      *) echo "Invalid choice"; pause_en ;;
     esac
   done
 }
@@ -120,31 +174,14 @@ show_main_menu_cn() {
     echo "[q] 退出"
     read -r -p "> " c
     case "$c" in
-      1) echo "进入 Web 菜单..."; pause ;;
-      2) echo "进入 Media 菜单..."; pause ;;
-      3) echo "进入 Ops 菜单..."; pause ;;
-      4) echo "进入 Net 菜单..."; pause ;;
-      5) echo "运行检查..."; check_sys_env; pause ;;
+      1) run_module_menu web cn ;;
+      2) run_module_menu media cn ;;
+      3) run_module_menu ops cn ;;
+      4) run_module_menu net cn ;;
+      5) run_module_menu check cn ;;
       0) return 0 ;;
       q|Q) exit 0 ;;
-      *) echo "输入无效。"; pause ;;
-    esac
-  done
-}
-
-root_menu() {
-  while true; do
-    show_logo
-    echo "Select Language / 选择语言"
-    echo "[1] English"
-    echo "[2] Chinese"
-    echo "[0] Exit"
-    read -r -p "> " c
-    case "$c" in
-      1) show_main_menu_en ;;
-      2) show_main_menu_cn ;;
-      0) exit 0 ;;
-      *) echo "Invalid choice."; pause ;;
+      *) echo "输入无效"; pause_cn ;;
     esac
   done
 }
