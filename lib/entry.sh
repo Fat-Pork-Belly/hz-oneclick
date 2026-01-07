@@ -12,7 +12,6 @@ fi
 
 REPO_URL="https://github.com/Hello-Pork-Belly/hz-oneclick.git"
 WEB_URL="https://horizontech.page"
-AUTHOR="Pork Belly"
 
 C_RESET="\033[0m"
 C_RED="\033[31m"
@@ -26,17 +25,17 @@ print_c() { printf "%b\n" "$*"; }
 show_logo() {
   print_c "${C_CYAN}"
   cat <<'ART'
- _   _                 _                        __     _____ _ _      _
-| | | |               (_)                      /  |   /  __ \ (_)    | |
-| |_| | ___  _ __ ___  _ _______  _ __ ______  `| |   | /  \/ |_  ___| | __
-|  _  |/ _ \| '__/ _ \| |_  / _ \| '_ \______|  | |   | |   | | |/ __| |/ /
-| | | | (_) | | | (_) | |/ / (_) | | | |      _| |_  | \__/\ | | (__|   <
-\_| |_/\___/|_|  \___/|_/___\___/|_| |_|      \___/   \____/_|_|\___|_|\_\
+ _   _            _                  _         __   ____ _ _      _
+| | | |          (_)                | |       /  | / ___| (_)    | |
+| |_| | ___  _ __ _ _______  _ __   | |___    `| | | |   | |_  ___| | __
+|  _  |/ _ \| '__| |_  / _ \| '_ \  | / __|    | | | |   | | |/ __| |/ /
+| | | | (_) | |  | |/ / (_) | | | | | \__ \   _| | | |___| | | (__|   <
+\_| |_/\___/|_|  |_/___\___/|_| |_| |_|___/   \___/  \____|_|_|\___|_|\_\
+
 ART
   print_c "${C_RESET}"
   print_c "${C_DIM}Version:${C_RESET} ${VERSION}"
   print_c "${C_DIM}Website:${C_RESET} ${WEB_URL}"
-  print_c "${C_DIM}GitHub:${C_RESET}  ${REPO_URL}"
   print_c "${C_DIM}Powered by:${C_RESET} Pork Belly"
   echo
 }
@@ -95,12 +94,12 @@ run_module_menu() {
 
   local menu_file=""
   case "$category" in
-    web)         menu_file="./modules/web/menu.sh" ;;
-    ops)         menu_file="./modules/ops/menu.sh" ;;
-    media)       menu_file="./modules/media/menu.sh" ;;
-    net)         menu_file="./modules/net/menu.sh" ;;
-    check)       menu_file="./modules/diagnostics/menu.sh" ;;
-    *)           echo "ERROR: unsupported category: $category"; return 1 ;;
+    web)   menu_file="./modules/web/menu.sh" ;;
+    media) menu_file="./modules/media/menu.sh" ;;
+    ops)   menu_file="./modules/ops/menu.sh" ;;
+    net)   menu_file="./modules/net/menu.sh" ;;
+    check) menu_file="./modules/diagnostics/menu.sh" ;;
+    *)     echo "ERROR: unsupported category: $category"; return 1 ;;
   esac
 
   if [ ! -f "$menu_file" ]; then
@@ -113,8 +112,8 @@ run_module_menu() {
 
   case "$category" in
     web)   show_web_menu "$lang" ;;
-    ops)   show_ops_menu "$lang" ;;
     media) show_media_menu "$lang" ;;
+    ops)   show_ops_menu "$lang" ;;
     net)   show_net_menu "$lang" ;;
     check) show_check_menu "$lang" ;;
   esac

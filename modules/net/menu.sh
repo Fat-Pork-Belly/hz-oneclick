@@ -27,8 +27,8 @@ show_net_menu() {
       echo "[q] Exit"
       read -r -p "> " c
       case "$c" in
-        1) echo "Coming Soon / 敬请期待"; read -r -p "Press Enter to continue..." _ ;;
-        2) echo "Coming Soon / 敬请期待"; read -r -p "Press Enter to continue..." _ ;;
+        1) echo "Coming Soon"; read -r -p "Press Enter to continue..." _ ;;
+        2) echo "Coming Soon"; read -r -p "Press Enter to continue..." _ ;;
         0) return 0 ;;
         q|Q) exit 0 ;;
         *) echo "Invalid choice"; read -r -p "Press Enter to continue..." _ ;;
