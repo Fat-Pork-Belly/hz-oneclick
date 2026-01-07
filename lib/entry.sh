@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION_FILE="$(pwd)/VERSION"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "$REPO_ROOT"
 
 VERSION="v3.0.0-alpha"
-if [ -f "$VERSION_FILE" ]; then
-  VERSION="$(cat "$VERSION_FILE" 2>/dev/null || echo "v3.0.0-alpha")"
+if [ -f "${REPO_ROOT}/VERSION" ]; then
+  VERSION="$(cat "${REPO_ROOT}/VERSION" 2>/dev/null || echo "v3.0.0-alpha")"
 fi
 
 REPO_URL="https://github.com/Hello-Pork-Belly/hz-oneclick.git"
 WEB_URL="https://horizontech.page"
 AUTHOR="Pork Belly"
 
-# ---- colors ----
 C_RESET="\033[0m"
 C_RED="\033[31m"
 C_GREEN="\033[32m"
@@ -31,7 +32,6 @@ show_logo() {
 |  _  |/ _ \| '__/ _ \| |_  / _ \| '_ \______|  | |   | |   | | |/ __| |/ /
 | | | | (_) | | | (_) | |/ / (_) | | | |      _| |_  | \__/\ | | (__|   <
 \_| |_/\___/|_|  \___/|_/___\___/|_| |_|      \___/   \____/_|_|\___|_|\_\
-
 ART
   print_c "${C_RESET}"
   print_c "${C_DIM}Version:${C_RESET} ${VERSION}"
@@ -93,7 +93,16 @@ run_module_menu() {
     return 1
   fi
 
-  local menu_file="./modules/${category}/menu.sh"
+  local menu_file=""
+  case "$category" in
+    web)         menu_file="./modules/web/menu.sh" ;;
+    ops)         menu_file="./modules/ops/menu.sh" ;;
+    media)       menu_file="./modules/media/menu.sh" ;;
+    net)         menu_file="./modules/net/menu.sh" ;;
+    check)       menu_file="./modules/diagnostics/menu.sh" ;;
+    *)           echo "ERROR: unsupported category: $category"; return 1 ;;
+  esac
+
   if [ ! -f "$menu_file" ]; then
     echo "ERROR: missing module menu: $menu_file"
     return 1
@@ -103,46 +112,12 @@ run_module_menu() {
   source "$menu_file"
 
   case "$category" in
-    web)
-      show_web_menu "$lang"
-      ;;
-    ops)
-      show_ops_menu "$lang"
-      ;;
-    ops)
-      show_ops_menu "$lang"
-      ;;
-    media|ops|net|check)
-      if [ "$lang" = "cn" ]; then
-        echo "模块占位符：${category}"
-        pause_cn
-      else
-        echo "Module placeholder: ${category}"
-        pause_en
-      fi
-      ;;
-    *)
-      echo "ERROR: unsupported category: $category"
-      return 1
-      ;;
+    web)   show_web_menu "$lang" ;;
+    ops)   show_ops_menu "$lang" ;;
+    media) show_media_menu "$lang" ;;
+    net)   show_net_menu "$lang" ;;
+    check) show_check_menu "$lang" ;;
   esac
-}
-
-root_menu() {
-  while true; do
-    show_logo
-    echo "Select Language / 选择语言"
-    echo "[1] English"
-    echo "[2] Chinese"
-    echo "[0] Exit"
-    read -r -p "> " c
-    case "$c" in
-      1) show_main_menu_en ;;
-      2) show_main_menu_cn ;;
-      0) exit 0 ;;
-      *) echo "Invalid choice"; pause_en ;;
-    esac
-  done
 }
 
 show_main_menu_en() {
@@ -189,6 +164,23 @@ show_main_menu_cn() {
       0) return 0 ;;
       q|Q) exit 0 ;;
       *) echo "输入无效"; pause_cn ;;
+    esac
+  done
+}
+
+root_menu() {
+  while true; do
+    show_logo
+    echo "Select Language / 选择语言"
+    echo "[1] English"
+    echo "[2] Chinese"
+    echo "[0] Exit"
+    read -r -p "> " c
+    case "$c" in
+      1) show_main_menu_en ;;
+      2) show_main_menu_cn ;;
+      0) exit 0 ;;
+      *) echo "Invalid choice"; pause_en ;;
     esac
   done
 }
