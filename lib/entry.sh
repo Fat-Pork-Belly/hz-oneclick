@@ -23,22 +23,24 @@ C_DIM="\033[2m"
 print_c() { printf "%b\n" "$*"; }
 
 show_logo() {
-  print_c "${C_CYAN}"
+  print_c ""
   cat <<'ART'
- _   _            _                  _         __   ____ _ _      _
-| | | |          (_)                | |       /  | / ___| (_)    | |
-| |_| | ___  _ __ _ _______  _ __   | |___    `| | | |   | |_  ___| | __
-|  _  |/ _ \| '__| |_  / _ \| '_ \  | / __|    | | | |   | | |/ __| |/ /
-| | | | (_) | |  | |/ / (_) | | | | | \__ \   _| | | |___| | | (__|   <
-\_| |_/\___/|_|  |_/___\___/|_| |_| |_|___/   \___/  \____|_|_|\___|_|\_\
-
+  _    _            _                     __   _____ _ _      _
+ | |  | |          (_)                   /  | /  __ \ (_)    | |
+ | |__| | ___  _ __ _ _______  _ __      `| | | /  / |_  ___| | __
+ |  __  |/ _ \| '__'| |_  / _ \| '_ \      | | | |   | | |/ __| |/ /
+ | |  | | (_) | |  | |/ / (_) | | | |    _| |_| \__/\ | | (__|   <
+ |_|  |_|\___/|_|  |_|/___\___/|_| |_|    \___/ \____/_|_|\___|_|\_\
+                                         >> Horizon-1 Click <<
 ART
-  print_c "${C_RESET}"
-  print_c "${C_DIM}Version:${C_RESET} ${VERSION}"
-  print_c "${C_DIM}Website:${C_RESET} ${WEB_URL}"
-  print_c "${C_DIM}Powered by:${C_RESET} Pork Belly"
+  print_c ""
+  print_c "Website: "
+  print_c "GitHub:  "
+  print_c "Author:  "
+  print_c "Version: "
   echo
 }
+
 
 detect_virt() {
   local v="unknown"
